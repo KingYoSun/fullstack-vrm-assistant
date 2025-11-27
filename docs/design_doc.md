@@ -344,6 +344,7 @@ llm:
 stt:
   provider: "sherpa-onnx"
   endpoint: "http://stt:6006"
+  model: "reazonspeech-k2-asr"
 
 tts:
   provider: "open-audio-s1"
@@ -357,6 +358,7 @@ rag:
 ```
 
 FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider を組み立てる。
+実際のデフォルト設定は `config/providers.yaml` に配置し、docker compose のサービス名（`llm`, `stt`, `tts` など）を前提としたエンドポイントを記載する。
 
 ---
 
@@ -403,7 +405,8 @@ FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider �
 
 ### 6.3 WebSocket メッセージプロトコル（例）
 
-* 音声は 44.1kHz/16bit 取得 → Opus 32kbps にエンコードし、20〜40ms 単位のチャンクで送信。クライアント送信キューに上限を設け、輻輳時は古いチャンクをドロップして遅延を抑制。
+* 音声は 44.1kHz/16bit 取得 → Opus 32kbps にエンコードし、デフォルト 20ms（調整幅 20〜40ms）のチャンクで送信。クライアント送信キュー上限は 25 チャンク（約 0.5s 相当）で、輻輳時は古いチャンクをドロップして遅延を抑制。
+* 下り（TTS→クライアント）は 40ms チャンクを基本とし、再生キュー上限 30 チャンク（約 1.2s）で古いチャンクを破棄して詰まりを回避。
 
 クライアント → サーバー:
 
