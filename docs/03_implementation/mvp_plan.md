@@ -47,8 +47,8 @@
 - [x] Vite+React プロジェクト初期化（docker dev）。
 - [x] マイク取得→Opus エンコード送信、TTS Opus 受信→再生（Audio/Opus ストリーム再生のたたき台）。
 - [x] WebSocket プロトコル実装（partial/final transcript、assistant_text、avatar_event）。
-- [ ] three-vrm の簡易表示とリップシンク（音量に応じた mouth open）を react-three-fiber で実装。
-- [ ] テキストチャットログ UI（STT結果と LLM 応答を表示）を shadcn/ui ベースで作成。
+- [x] three-vrm の簡易表示とリップシンク（音量に応じた mouth open）を react-three-fiber で実装。
+- [x] テキストチャットログ UI（STT結果と LLM 応答を表示）を shadcn/ui ベースで作成。
 
 ### Phase 4: 最低限の運用性
 - [ ] 構造化ログ + request ID。主要区間レイテンシ計測（STT/LLM/TTS）。
