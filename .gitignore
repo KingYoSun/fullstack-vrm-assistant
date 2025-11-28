@@ -3,3 +3,6 @@
 # Python cache
 __pycache__/
 *.py[cod]
+# Generated FAISS index
+data/faiss/*.faiss
+data/faiss/*.pkl

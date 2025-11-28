@@ -21,14 +21,22 @@ class EmbeddingClient:
 
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         try:
-            return await self._request_async(texts)
+            result = await self._request_async(texts)
+            if result:
+                return result
+            logger.warning("Embedding provider returned empty result; using fallback.")
+            return [self._fallback_embedding(text) for text in texts]
         except Exception as exc:
             logger.warning("Embedding async request failed: %s", exc)
             return [self._fallback_embedding(text) for text in texts]
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         try:
-            return self._request_sync(texts)
+            result = self._request_sync(texts)
+            if result:
+                return result
+            logger.warning("Embedding provider returned empty result; using fallback.")
+            return [self._fallback_embedding(text) for text in texts]
         except Exception as exc:
             logger.warning("Embedding sync request failed: %s", exc)
             return [self._fallback_embedding(text) for text in texts]

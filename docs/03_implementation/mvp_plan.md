@@ -41,6 +41,7 @@
 - [ ] Opus 32kbps チャンク受信→PCM変換→STT パイプライン。
 - [ ] TTS 出力を Opus 40ms チャンクにし、キュー上限/ドロップ制御を組み込み。
 - [ ] Backpressure/再接続/セッションタイムアウト（無音 60s）を実装。
+- [ ] 設計メモ: `docs/03_implementation/phase2_websocket.md` にプロトコル/ステート/キュー方針を明記。
 
 ### Phase 3: Frontend MVP
 - [ ] Vite+React プロジェクト初期化（docker dev）。

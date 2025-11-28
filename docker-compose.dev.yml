@@ -1,7 +1,7 @@
 name: fullstack-vrm-assistant-dev
 
 x-mock-provider: &mock-provider
-  image: ghcr.io/ealen/echo-server:latest
+  image: docker.io/ealen/echo-server:latest
   restart: unless-stopped
 
 services:
