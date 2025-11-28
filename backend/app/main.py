@@ -5,7 +5,7 @@ import httpx
 from fastapi import Depends, FastAPI
 
 from app.api import dependencies
-from app.api.routes import text_chat
+from app.api.routes import text_chat, websocket
 from app.core.container import AppContainer
 from app.core.providers import load_providers_config
 from app.core.settings import get_settings
@@ -57,6 +57,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(text_chat.router, prefix="/api/v1")
+app.include_router(websocket.router)
 
 
 @app.get("/health")

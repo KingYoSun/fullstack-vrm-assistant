@@ -1,6 +1,6 @@
 llm:
   provider: "local-gpt-oss-120b"
-  endpoint: "http://llm:8000/v1"
+  endpoint: "http://llm:18000/v1"
   model: "gpt-oss-120b"
   temperature: 0.6
   max_tokens: 1024
