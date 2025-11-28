@@ -26,7 +26,7 @@
 
 ### Phase 0: インフラ雛形
 - [x] `docker-compose.dev.yml` を作成し、backend/frontend を bind mount + ホットリロードで起動できるようにする（llm/stt/tts は一旦モック可）。
-- [x] `.env` / env.example を用意し、プロバイダエンドポイントやトークンを集約。
+- [x] `.env` / `.env.default` を用意し、プロバイダエンドポイントやトークンを集約。
 - [x] Makefile もしくは npm scripts で dev サービス起動コマンドをラップ（例: `make dev` / `pnpm dev:docker`）。
 
 ### Phase 1: Backend スケルトン + Text Chat
