@@ -12,6 +12,9 @@ services:
     command: >-
       sh -c "
         cd /workspace/backend &&
+        apt-get update &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg &&
+        rm -rf /var/lib/apt/lists/* &&
         if [ -f requirements.dev.txt ]; then
           pip install --no-cache-dir -r requirements.dev.txt;
         else

@@ -22,6 +22,7 @@ class STTProviderConfig(BaseModel):
     target_sample_rate: int | None = None
     enable_partial: bool = True
     vad: str | None = None
+    timeout_sec: int = 30
 
 
 class TTSProviderConfig(BaseModel):
@@ -32,6 +33,8 @@ class TTSProviderConfig(BaseModel):
     output_format: str | None = None
     sample_rate: int | None = None
     stream: bool = True
+    chunk_ms: int = Field(default=40, ge=10)
+    timeout_sec: int = Field(default=30, ge=1)
 
 
 class RagConfig(BaseModel):

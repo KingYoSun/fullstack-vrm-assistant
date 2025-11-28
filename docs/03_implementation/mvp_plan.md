@@ -37,16 +37,16 @@
 - [x] PostgreSQL 接続と会話ログの最小保存（session_id, turn_id, user_text, assistant_text, timestamps）。
 
 ### Phase 2: WebSocket 音声 I/O
-- [ ] WebSocket `GET /ws/session/{id}` 実装（音声チャンク、partial/final STT、LLM/TTS ストリーム、avatar_event）。
-- [ ] Opus 32kbps チャンク受信→PCM変換→STT パイプライン。
-- [ ] TTS 出力を Opus 40ms チャンクにし、キュー上限/ドロップ制御を組み込み。
-- [ ] Backpressure/再接続/セッションタイムアウト（無音 60s）を実装。
-- [ ] 設計メモ: `docs/03_implementation/phase2_websocket.md` にプロトコル/ステート/キュー方針を明記。
+- [x] WebSocket `GET /ws/session/{id}` 実装（音声チャンク、partial/final STT、LLM/TTS ストリーム、avatar_event）。
+- [x] Opus 32kbps チャンク受信→PCM変換→STT パイプライン。
+- [x] TTS 出力を Opus 40ms チャンクにし、キュー上限/ドロップ制御を組み込み。
+- [x] Backpressure/再接続/セッションタイムアウト（無音 60s）を実装。
+- [x] 設計メモ: `docs/03_implementation/phase2_websocket.md` にプロトコル/ステート/キュー方針を明記。
 
 ### Phase 3: Frontend MVP
-- [ ] Vite+React プロジェクト初期化（docker dev）。
-- [ ] マイク取得→Opus エンコード送信、TTS Opus 受信→再生。
-- [ ] WebSocket プロトコル実装（partial/final transcript、assistant_text、avatar_event）。
+- [x] Vite+React プロジェクト初期化（docker dev）。
+- [x] マイク取得→Opus エンコード送信、TTS Opus 受信→再生（Audio/Opus ストリーム再生のたたき台）。
+- [x] WebSocket プロトコル実装（partial/final transcript、assistant_text、avatar_event）。
 - [ ] three-vrm の簡易表示とリップシンク（音量に応じた mouth open）を react-three-fiber で実装。
 - [ ] テキストチャットログ UI（STT結果と LLM 応答を表示）を shadcn/ui ベースで作成。
 
