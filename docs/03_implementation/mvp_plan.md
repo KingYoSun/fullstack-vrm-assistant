@@ -10,6 +10,7 @@
 - Provider 設定は `config/providers.yaml` を使用（llm/stt/tts/rag/embedding）。
 - 音声: 44.1kHz/16bit → Opus 32kbps エンコード、20ms チャンク送信を標準。
 - 単独ユーザー、インフラ側で認証済み、アプリはセッションID/固定トークンのみ。
+- three-vrm 表示は react-three-fiber を用い、UI コンポーネントは shadcn/ui を採用する。
 
 ## スコープ
 - Backend: FastAPI WebSocket/REST、会話オーケストレーション、Provider 抽象化、RAG (LangChain+FAISS)、ログ最小限。
@@ -45,8 +46,8 @@
 - [ ] Vite+React プロジェクト初期化（docker dev）。
 - [ ] マイク取得→Opus エンコード送信、TTS Opus 受信→再生。
 - [ ] WebSocket プロトコル実装（partial/final transcript、assistant_text、avatar_event）。
-- [ ] three-vrm の簡易表示とリップシンク（音量に応じた mouth open）を実装。
-- [ ] テキストチャットログ UI（STT結果と LLM 応答を表示）。
+- [ ] three-vrm の簡易表示とリップシンク（音量に応じた mouth open）を react-three-fiber で実装。
+- [ ] テキストチャットログ UI（STT結果と LLM 応答を表示）を shadcn/ui ベースで作成。
 
 ### Phase 4: 最低限の運用性
 - [ ] 構造化ログ + request ID。主要区間レイテンシ計測（STT/LLM/TTS）。

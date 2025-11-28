@@ -8,7 +8,7 @@
   * STT: sherpa-onnx (+ reazon speech)
   * TTS: Open Audio S1 (Fish Audio)
   * Backend: FastAPI
-  * Frontend: Vite + React + TypeScript + three-vrm
+  * Frontend: Vite + React + TypeScript + three-vrm（react-three-fiber 経由）+ shadcn/ui
   * コンテナオーケストレーション: Docker Compose（一発起動）
 
 ---
@@ -364,6 +364,9 @@ FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider �
 
 ## 6. フロントエンド設計（Vite + React + three-vrm）
 
+* three.js / three-vrm は `@react-three/fiber` を用いて React コンポーネント化する。
+* UI コンポーネント/フォーム/トースト等は shadcn/ui を採用し、デザインの一貫性を担保する。
+
 ### 6.1 UI コンポーネント構成
 
 主な React コンポーネント:
@@ -373,7 +376,7 @@ FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider �
   * 全体の状態管理（React Query / Zustand / Reduxなど）
 * `<AvatarScene>`
 
-  * three.js + three-vrm による 3D アバター表示
+  * react-three-fiber + three-vrm による 3D アバター表示
   * カメラ・ライト・背景などのシーン管理
 * `<AvatarController>`
 
@@ -392,7 +395,7 @@ FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider �
 
 ### 6.2 three-vrm 制御の概要
 
-* VRM モデルをロードして `VRM` インスタンスを取得
+* VRM モデルをロードして `VRM` インスタンスを取得（react-three-fiber の Canvas コンテキスト内で管理）
 * 口パク:
 
   * ブラウザ側で再生中の TTS 音声を Web Audio の AnalyserNode で解析
