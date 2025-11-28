@@ -27,6 +27,7 @@ services:
     volumes:
       - ./backend:/workspace/backend
       - ./config:/workspace/config:ro
+      - ./data:/data
     env_file:
       - .env
     environment:
@@ -39,6 +40,7 @@ services:
       - stt-mock
       - tts-mock
       - embedding-mock
+      - postgres
     profiles:
       - dev
 
@@ -126,5 +128,20 @@ services:
     profiles:
       - dev
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: vrm-postgres-dev
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-vrm}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-vrm_password}
+      - POSTGRES_DB=${POSTGRES_DB:-vrm}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    profiles:
+      - dev
+
 volumes:
   frontend_node_modules:
+  postgres_data:

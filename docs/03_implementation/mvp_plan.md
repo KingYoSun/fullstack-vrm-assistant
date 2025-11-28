@@ -30,11 +30,11 @@
 - [x] Makefile もしくは npm scripts で dev サービス起動コマンドをラップ（例: `make dev` / `pnpm dev:docker`）。
 
 ### Phase 1: Backend スケルトン + Text Chat
-- [ ] FastAPI プロジェクト初期化（app/main.py, dependencies, settings）。
-- [ ] Provider 抽象（llm/stt/tts/rag/embedding/vector store）と DI 実装（config/providers.yaml を読む）。
-- [ ] Text chat REST `POST /api/v1/text-chat`（RAG + LLM ストリーム対応）を実装。
-- [ ] LangChain+FAISS の簡易 ingest コマンド/ジョブ（ローカルディレクトリの md/pdf を index）。
-- [ ] PostgreSQL 接続と会話ログの最小保存（session_id, turn_id, user_text, assistant_text, timestamps）。
+- [x] FastAPI プロジェクト初期化（app/main.py, dependencies, settings）。
+- [x] Provider 抽象（llm/stt/tts/rag/embedding/vector store）と DI 実装（config/providers.yaml を読む）。
+- [x] Text chat REST `POST /api/v1/text-chat`（RAG + LLM ストリーム対応）を実装。
+- [x] LangChain+FAISS の簡易 ingest コマンド/ジョブ（ローカルディレクトリの md/pdf を index）。
+- [x] PostgreSQL 接続と会話ログの最小保存（session_id, turn_id, user_text, assistant_text, timestamps）。
 
 ### Phase 2: WebSocket 音声 I/O
 - [ ] WebSocket `GET /ws/session/{id}` 実装（音声チャンク、partial/final STT、LLM/TTS ストリーム、avatar_event）。
