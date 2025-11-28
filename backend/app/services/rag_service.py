@@ -33,6 +33,7 @@ class RagService:
         self._index_path = Path(rag_config.index_path)
         self._index_dir = self._index_path.parent
         self._index_name = self._index_path.stem
+        self._loaded = False
         logger.info(
             "RAG service configured: provider=%s, index=%s",
             rag_config.provider,
@@ -40,6 +41,7 @@ class RagService:
         )
 
     async def load(self) -> None:
+        self._loaded = False
         faiss_file = self._index_dir / f"{self._index_name}.faiss"
         store_file = self._index_dir / f"{self._index_name}.pkl"
         if not faiss_file.exists() or not store_file.exists():
@@ -52,6 +54,7 @@ class RagService:
             index_name=self._index_name,
             allow_dangerous_deserialization=True,
         )
+        self._loaded = True
         logger.info("Loaded FAISS index from %s", faiss_file)
 
     async def search(self, query: str, top_k: Optional[int] = None) -> list[Document]:
@@ -78,3 +81,7 @@ class RagService:
             source = meta.get("source") or "unknown"
             parts.append(f"[{idx}] ({source}) {doc.page_content}")
         return "\n\n".join(parts)
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._loaded

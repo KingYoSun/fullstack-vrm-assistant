@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, WebSocket
 
 from app.api.dependencies import get_provider_registry, get_rag_service
+from app.core.logging import generate_request_id, reset_request_id, set_request_id
 from app.providers.registry import ProviderRegistry
 from app.services.rag_service import RagService
 from app.services.ws_session import WebSocketSession
@@ -15,10 +16,16 @@ async def websocket_session(
     providers: ProviderRegistry = Depends(get_provider_registry),
     rag_service: RagService = Depends(get_rag_service),
 ) -> None:
-    session = WebSocketSession(
-        session_id=session_id,
-        websocket=websocket,
-        providers=providers,
-        rag_service=rag_service,
-    )
-    await session.run()
+    request_id = websocket.headers.get("x-request-id") or generate_request_id()
+    token = set_request_id(request_id)
+    try:
+        session = WebSocketSession(
+            session_id=session_id,
+            websocket=websocket,
+            providers=providers,
+            rag_service=rag_service,
+            request_id=request_id,
+        )
+        await session.run()
+    finally:
+        reset_request_id(token)

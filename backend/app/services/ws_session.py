@@ -32,6 +32,7 @@ class WebSocketSession:
         websocket: WebSocket,
         providers: ProviderRegistry,
         rag_service: RagService,
+        request_id: str | None = None,
         idle_timeout_sec: float = 60.0,
         silence_flush_ms: int = 600,
         input_max_chunks: int = 150,
@@ -58,10 +59,17 @@ class WebSocketSession:
         self._vad = webrtcvad.Vad(2) if webrtcvad else None
         self._consecutive_silence_ms = 0
         self._ffmpeg_available = shutil.which("ffmpeg") is not None
+        self.request_id = request_id or uuid4().hex
 
     async def run(self) -> None:
         await self.websocket.accept()
-        await self.websocket.send_json({"type": "ready", "session_id": self.session_id})
+        await self.websocket.send_json(
+            {"type": "ready", "session_id": self.session_id, "request_id": self.request_id}
+        )
+        logger.info(
+            "WebSocket session ready",
+            extra={"session_id": self.session_id, "event": "ws_ready"},
+        )
         try:
             while True:
                 try:
@@ -80,9 +88,16 @@ class WebSocketSession:
                 elif (data := message.get("bytes")) is not None:
                     await self._handle_binary(data)
         except WebSocketDisconnect:
-            logger.info("WebSocket disconnected: session_id=%s", self.session_id)
+            logger.info(
+                "WebSocket disconnected",
+                extra={"session_id": self.session_id, "event": "ws_disconnected"},
+            )
         except Exception as exc:  # noqa: BLE001
-            logger.exception("WebSocket error: %s", exc)
+            logger.exception(
+                "WebSocket error",
+                exc_info=exc,
+                extra={"session_id": self.session_id, "event": "ws_error"},
+            )
             await self._send_error("internal_error", recoverable=False)
             await self.websocket.close(code=1011)
         finally:
@@ -190,11 +205,16 @@ class WebSocketSession:
         try:
             transcript = await self.providers.stt.transcribe(pcm_chunks or audio_chunks)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("STT failed for session=%s: %s", self.session_id, exc)
+            logger.exception(
+                "STT failed for session",
+                exc_info=exc,
+                extra={"session_id": self.session_id, "event": "stt_error"},
+            )
             await self._send_error("stt_failed", recoverable=False)
             self._state = "listening"
             return
         stt_end = time.monotonic()
+        stt_latency_ms = (stt_end - stt_start) * 1000
 
         if not transcript:
             await self._send_error("transcription_empty", recoverable=True)
@@ -212,11 +232,30 @@ class WebSocketSession:
             }
         )
 
-        await self._run_llm_and_tts(turn_id=turn_id, user_text=transcript, stt_latency_ms=(stt_end - stt_start) * 1000)
+        logger.info(
+            "STT completed",
+            extra={
+                "session_id": self.session_id,
+                "turn_id": turn_id,
+                "latency_ms": round(stt_latency_ms, 1),
+                "event": "stt_done",
+            },
+        )
+
+        await self._run_llm_and_tts(
+            turn_id=turn_id, user_text=transcript, stt_latency_ms=stt_latency_ms
+        )
         self._state = "listening"
 
-    async def _run_llm_and_tts(self, turn_id: str, user_text: str, stt_latency_ms: float) -> None:
+    async def _run_llm_and_tts(
+        self, turn_id: str, user_text: str, stt_latency_ms: float
+    ) -> None:
         self._state = "responding"
+        context_text = ""
+        assistant_text = ""
+        fallback_used = False
+        llm_latency_ms: float | None = None
+
         try:
             docs = await self.rag_service.search(user_text)
             context_text = self.rag_service.context_as_text(docs)
@@ -235,31 +274,74 @@ class WebSocketSession:
                     }
                 )
 
-            assistant_text = "".join(tokens).strip()
-            llm_end = time.monotonic()
-            await self.websocket.send_json(
-                {
-                    "type": "llm_done",
+            assistant_text = "".join(tokens).strip() or self._fallback_text(user_text)
+            llm_latency_ms = (time.monotonic() - llm_start) * 1000
+        except Exception as exc:  # noqa: BLE001
+            fallback_used = True
+            assistant_text = self._fallback_text(user_text)
+            logger.exception(
+                "LLM pipeline failed for session",
+                exc_info=exc,
+                extra={
                     "session_id": self.session_id,
                     "turn_id": turn_id,
-                    "assistant_text": assistant_text,
-                    "used_context": context_text,
-                    "timestamp": time.time(),
-                    "latency_ms": {
-                        "stt": round(stt_latency_ms, 1),
-                        "llm": round((llm_end - llm_start) * 1000, 1),
-                    },
-                }
+                    "event": "llm_error",
+                },
             )
+            await self._send_error("llm_failed", recoverable=True)
 
-            await self._stream_tts(turn_id=turn_id, text=assistant_text, llm_latency_ms=(llm_end - llm_start) * 1000)
+        llm_latency_value = round(llm_latency_ms, 1) if llm_latency_ms is not None else 0.0
+        latency_payload = {
+            "stt": round(stt_latency_ms, 1),
+            "llm": llm_latency_value,
+        }
+        await self.websocket.send_json(
+            {
+                "type": "llm_done",
+                "session_id": self.session_id,
+                "turn_id": turn_id,
+                "assistant_text": assistant_text,
+                "used_context": context_text,
+                "timestamp": time.time(),
+                "latency_ms": latency_payload,
+                "fallback": fallback_used,
+            }
+        )
+        logger.info(
+            "LLM completed",
+            extra={
+                "session_id": self.session_id,
+                "turn_id": turn_id,
+                "latency_ms": latency_payload,
+                "event": "llm_done",
+                "fallback": fallback_used,
+            },
+        )
+
+        try:
+            await self._stream_tts(
+                turn_id=turn_id,
+                text=assistant_text,
+                llm_latency_ms=llm_latency_value,
+                fallback=fallback_used,
+            )
         except Exception as exc:  # noqa: BLE001
-            logger.exception("LLM/TTS pipeline failed for session=%s: %s", self.session_id, exc)
-            await self._send_error("pipeline_error", recoverable=False)
+            logger.exception(
+                "TTS pipeline failed for session",
+                exc_info=exc,
+                extra={
+                    "session_id": self.session_id,
+                    "turn_id": turn_id,
+                    "event": "tts_error",
+                },
+            )
+            await self._send_error("tts_failed", recoverable=False)
         finally:
             self._state = "listening"
 
-    async def _stream_tts(self, turn_id: str, text: str, llm_latency_ms: float) -> None:
+    async def _stream_tts(
+        self, turn_id: str, text: str, llm_latency_ms: float, fallback: bool
+    ) -> None:
         metadata = self.providers.tts.metadata()
         tts_start = time.monotonic()
         await self.websocket.send_json(
@@ -268,6 +350,7 @@ class WebSocketSession:
                 "session_id": self.session_id,
                 "turn_id": turn_id,
                 **metadata,
+                "fallback": fallback,
             }
         )
 
@@ -283,17 +366,30 @@ class WebSocketSession:
             await self._maybe_send_avatar_event(turn_id, chunk)
 
         tts_end = time.monotonic()
+        tts_latency = round((tts_end - tts_start) * 1000, 1)
+        latency_payload = {
+            "llm": llm_latency_ms,
+            "tts": tts_latency,
+        }
         await self.websocket.send_json(
             {
                 "type": "tts_end",
                 "session_id": self.session_id,
                 "turn_id": turn_id,
                 "timestamp": time.time(),
-                "latency_ms": {
-                    "llm": round(llm_latency_ms, 1),
-                    "tts": round((tts_end - tts_start) * 1000, 1),
-                },
+                "latency_ms": latency_payload,
+                "fallback": fallback,
             }
+        )
+        logger.info(
+            "TTS completed",
+            extra={
+                "session_id": self.session_id,
+                "turn_id": turn_id,
+                "latency_ms": latency_payload,
+                "event": "tts_end",
+                "fallback": fallback,
+            },
         )
 
     async def _maybe_send_avatar_event(self, turn_id: str, chunk: bytes) -> None:
@@ -326,9 +422,20 @@ class WebSocketSession:
         messages.append(ChatMessage(role="user", content=user_text))
         return messages
 
+    def _fallback_text(self, user_text: str) -> str:
+        if user_text.strip():
+            return "現在応答を生成できません。時間をおいてもう一度お試しください。"
+        return "応答を生成できませんでした。"
+
     async def _send_error(self, message: str, recoverable: bool) -> None:
         await self.websocket.send_json(
-            {"type": "error", "message": message, "recoverable": recoverable}
+            {
+                "type": "error",
+                "message": message,
+                "recoverable": recoverable,
+                "session_id": self.session_id,
+                "request_id": self.request_id,
+            }
         )
 
     async def _decode_opus_chunk(self, data: bytes) -> bytes | None:

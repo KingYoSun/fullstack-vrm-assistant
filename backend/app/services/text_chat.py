@@ -1,5 +1,6 @@
 import logging
 from collections.abc import AsyncIterator
+import time
 from uuid import uuid4
 
 from fastapi import HTTPException, status
@@ -29,7 +30,9 @@ class TextChatService:
                 status_code=status.HTTP_400_BAD_REQUEST, detail="user_text is empty."
             )
 
+        rag_start = time.monotonic()
         docs = await self._rag_service.search(user_text, top_k=top_k)
+        rag_latency_ms = (time.monotonic() - rag_start) * 1000
         context_text = self._rag_service.context_as_text(docs)
         turn_identifier = turn_id or uuid4().hex
         messages = self._build_messages(user_text, context_text)
@@ -44,6 +47,7 @@ class TextChatService:
         }
 
         assistant_tokens: list[str] = []
+        llm_start = time.monotonic()
         async for token in self._llm_client.stream_chat(messages):
             assistant_tokens.append(token)
             yield {
@@ -56,6 +60,7 @@ class TextChatService:
             }
 
         assistant_text = "".join(assistant_tokens).strip()
+        llm_latency_ms = (time.monotonic() - llm_start) * 1000
         if repo:
             await repo.create(
                 session_id=session_id,
@@ -71,8 +76,24 @@ class TextChatService:
                 "turn_id": turn_identifier,
                 "assistant_text": assistant_text,
                 "used_context": context_text,
+                "latency_ms": {
+                    "rag": round(rag_latency_ms, 1),
+                    "llm": round(llm_latency_ms, 1),
+                },
             },
         }
+        logger.info(
+            "Text chat completed",
+            extra={
+                "session_id": session_id,
+                "turn_id": turn_identifier,
+                "latency_ms": {
+                    "rag": round(rag_latency_ms, 1),
+                    "llm": round(llm_latency_ms, 1),
+                },
+                "event": "text_chat_done",
+            },
+        )
 
     def _build_messages(self, user_text: str, context_text: str) -> list[ChatMessage]:
         system_prompt = (
