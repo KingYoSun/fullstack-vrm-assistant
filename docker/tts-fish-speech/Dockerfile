@@ -5,8 +5,7 @@ FROM nvcr.io/nvidia/pytorch:25.08-py3
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_INDEX_URL=https://pypi.org/simple
+    PIP_NO_CACHE_DIR=1
 
 # 音声関連の依存を追加
 RUN apt-get update \

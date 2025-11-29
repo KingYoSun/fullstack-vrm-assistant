@@ -9,11 +9,11 @@
 - LLM: `LLM_IMAGE`（vLLM）、`LLM_MODEL_PATH`（例: `/models/gpt-oss-120b`）、`LLM_GPU_COUNT`/`LLM_TP_SIZE`、`LLM_ENDPOINT`。
 - STT: `STT_IMAGE`（sherpa-onnx）、`STT_MODEL_DIR`、`STT_COMMAND`（WebSocket サーバ起動コマンドを上書き可能）、`STT_ENDPOINT`。
 - TTS: `TTS_IMAGE`（Open Audio S1 サーバ想定。デフォルトは自前ビルドの `local/openvoice:cpu`）、`TTS_MODEL_DIR`、`TTS_COMMAND`、`TTS_ENDPOINT`。
-- Embedding: `EMBEDDING_IMAGE`（Hugging Face text-embeddings-inference）、`EMBEDDING_MODEL`、`EMBEDDING_PORT`。Hugging Face トークンが必要なら `HUGGINGFACEHUB_API_TOKEN` をセット。
+- Embedding: `EMBEDDING_IMAGE`（デフォルトは sm120 対応の `tei-cuda-arm64:120` / Hugging Face text-embeddings-inference）、`EMBEDDING_MODEL`、`EMBEDDING_PORT`、`EMBEDDING_MODEL_DIR`（HF キャッシュ用。デフォルト `/data`）。Hugging Face トークンが必要なら `HUGGINGFACEHUB_API_TOKEN` をセット。
 - モデル配置: `./models/{llm,stt,tts,embedding}` をホスト側の標準配置としてボリュームマウント。
 - プラットフォーム: ARM ホストの場合は `*_PLATFORM=linux/amd64` を `.env` で指定してイメージを引く（qemu 必要）。ネイティブ arm64 イメージが不要ならこのまま、arm64 対応イメージを自前で用意する場合はタグを差し替えてください。
 
-## STT/TTS を自前ビルドする場合
+## STT/TTS/Embedding を自前ビルドする場合
 - TTS (Fish Speech/OpenVoice): `docker-compose.yml` は fish-speech リポジトリを `target: server` でビルドする設定に変更済み。デフォルトタグは `local/openvoice:cpu`、バックエンドは `TTS_BACKEND=cpu`（ARM でもビルド可）。ビルドコマンド例:
   ```bash
   docker compose build tts  # CPUビルド (platformは.envのTTS_PLATFORMに従う)
@@ -24,6 +24,33 @@
   docker compose build stt
   ```
   モデルは `./models/stt` を `/models` にマウントし、環境変数でパスを調整可能（例: `STT_ENCODER=/models/encoder.onnx`）。`STT_PROVIDER_RUNTIME` で `cuda` 指定も可能だが、別途 CUDA ベースのイメージを用意する必要あり。
+- Embedding (text-embeddings-inference, sm120/aarch64): DGX Spark (compute capability 12.1) では公式 aarch64 CUDA イメージが未対応のため、PR ブランチ `pr-735` を自前ビルドして `tei-cuda-arm64:120` を使う。
+  ```bash
+  git clone https://github.com/huggingface/text-embeddings-inference.git
+  cd text-embeddings-inference
+
+  # Blackwell 対応の PR ブランチを取得
+  git fetch origin pull/735/head:pr-735
+  git checkout pr-735
+
+  git submodule update --init
+
+  runtime_compute_cap=120
+  docker build . -f Dockerfile-cuda-blackwell \
+    --build-arg CUDA_COMPUTE_CAP=$runtime_compute_cap \
+    --platform=linux/arm64 \
+    -t tei-cuda-arm64:$runtime_compute_cap
+  ```
+  単体起動例（HF モデルキャッシュは `/data` を利用）:
+  ```bash
+  docker run --rm --gpus all \
+    -p 8080:80 \
+    -v "$volume":/data \
+    tei-cuda-arm64:${runtime_compute_cap} \
+    --model-id "$model" \
+    --auto-truncate
+  ```
+  compose 側では `EMBEDDING_IMAGE=tei-cuda-arm64:120`、`EMBEDDING_MODEL_LOCAL_DIR=./models/embedding` を前提に `/data` をキャッシュとしてマウントする。モデルを事前配置する場合は `/data` 配下に保存しておく。
 
 ### CUDA ビルドの指定（Fish Speech: cu128 / sherpa-onnx: cu128）
 - TTS (Fish Speech/OpenVoice, cu128): `docker/tts-fish-speech/Dockerfile` をベースに NGC の PyTorch ARM64 イメージからビルド。`.env` の `TTS_IMAGE=local/openvoice:cuda` のまま `docker compose build tts` を実行（ARM64 はそのまま、x86_64 でビルドする場合は `TTS_PLATFORM=linux/amd64` を指定）。

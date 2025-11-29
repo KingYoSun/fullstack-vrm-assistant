@@ -9,7 +9,7 @@ DECODER="${STT_DECODER:-${MODEL_DIR}/decoder.onnx}"
 JOINER="${STT_JOINER:-${MODEL_DIR}/joiner.onnx}"
 PROVIDER="${STT_PROVIDER_RUNTIME:-cpu}"
 
-DEFAULT_CMD=(python3 -m sherpa_onnx.python_api.offline_websocket_server
+DEFAULT_CMD=(sherpa-onnx-offline-websocket-server
   --port "${PORT}"
   --tokens "${TOKENS}"
   --encoder-onnx "${ENCODER}"

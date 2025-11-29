@@ -62,6 +62,38 @@ PyPI に aarch64+cu126 wheel が無いため、ソースビルドが必要です
 - `docker-compose.yml` の `tts`/`stt` ビルドコンテキストはリポジトリルートにし、`wheels` ディレクトリが含まれるようにします。
 - wheel が無い場合はビルドが失敗する設定にしておくと、誤って CPU 版や不正な wheel を拾うリスクを避けられます。
 
+## text-embeddings-inference (sm120/aarch64) の CUDA イメージビルド
+DGX Spark（compute capability 12.1）で text-embeddings-inference を GPU 実行するには、公式イメージが未対応のため PR ブランチを自前ビルドする。
+
+```bash
+git clone https://github.com/huggingface/text-embeddings-inference.git
+cd text-embeddings-inference
+
+# Blackwell 対応の PR ブランチを取得
+git fetch origin pull/735/head:pr-735
+git checkout pr-735
+
+git submodule update --init
+
+runtime_compute_cap=120
+docker build . -f Dockerfile-cuda-blackwell \
+  --build-arg CUDA_COMPUTE_CAP=$runtime_compute_cap \
+  --platform=linux/arm64 \
+  -t tei-cuda-arm64:$runtime_compute_cap
+```
+
+起動例（HF モデルキャッシュは `/data` を利用）:
+```bash
+docker run --rm --gpus all \
+  -p 8080:80 \
+  -v "$volume":/data \
+  tei-cuda-arm64:${runtime_compute_cap} \
+  --model-id "$model" \
+  --auto-truncate
+```
+
+`docker-compose.yml` は `EMBEDDING_IMAGE=tei-cuda-arm64:120` を参照する前提。イメージビルド後に compose を起動すれば、そのまま DGX Spark で GPU 対応の embedding サービスを利用できる。
+
 ## 注意
 - torch のソースビルドは数時間かかります。十分なディスク/GPU メモリを確保してください。
 - `TORCH_CUDA_ARCH_LIST` は実機の SM に合わせて設定してください（DGX Sparkは12.1）。

@@ -1,6 +1,7 @@
 # Local environment
 .env
-# Python cache
+# cache
+.cache
 __pycache__/
 *.py[cod]
 # Generated FAISS index
@@ -14,3 +15,5 @@ frontend/.pnpm-store
 # Build artifact
 wheels
 !tools/wheels
+# models
+models

@@ -5,14 +5,11 @@ x-common-env: &common-env
     - .env
 
 x-nvidia: &nvidia
-  runtime: nvidia
   deploy:
     resources:
       reservations:
         devices:
-          - driver: nvidia
-            count: 1
-            capabilities:
+          - capabilities:
               - gpu
 
 services:
@@ -25,8 +22,7 @@ services:
       sh -c "
         cd /workspace/backend &&
         apt-get update &&
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
-          ffmpeg build-essential curl &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg build-essential curl &&
         rm -rf /var/lib/apt/lists/* &&
         python -m pip install --no-cache-dir --upgrade pip setuptools wheel &&
         if [ -f requirements.dev.txt ]; then
@@ -90,30 +86,21 @@ services:
 
   llm:
     image: ${LLM_IMAGE:-vllm/vllm-openai:latest}
-    platform: ${LLM_PLATFORM:-linux/amd64}
+    platform: ${LLM_PLATFORM:-linux/aarch64}
     container_name: vrm-llm
     restart: unless-stopped
     <<: *nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${LLM_GPU_COUNT:-1}
-              capabilities:
-                - gpu
     volumes:
       - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/models}:ro
     environment:
       - HF_HOME=/models/cache
     command: >-
-      python3 -m vllm.entrypoints.openai.api_server
-        --model ${LLM_MODEL_PATH:-/models/gpt-oss-120b}
-        --host 0.0.0.0
-        --port ${LLM_PORT:-18000}
-        --tensor-parallel-size ${LLM_TP_SIZE:-1}
-        --gpu-memory-utilization ${LLM_GPU_MEM_UTIL:-0.9}
-        --max-num-seqs ${LLM_MAX_NUM_SEQS:-4}
+      --model ${LLM_MODEL_PATH:-/models/gpt-oss-120b}
+      --host 0.0.0.0
+      --port ${LLM_PORT:-18000}
+      --tensor-parallel-size ${LLM_TP_SIZE:-1}
+      --gpu-memory-utilization ${LLM_GPU_MEM_UTIL:-0.9}
+      --max-num-seqs ${LLM_MAX_NUM_SEQS:-4}
     ports:
       - "${LLM_PORT:-18000}:${LLM_PORT:-18000}"
     healthcheck:
@@ -143,12 +130,15 @@ services:
       args:
         BACKEND: ${STT_BACKEND:-cuda}
         CUDA_VER: ${STT_CUDA_VERSION:-12.8.0}
-    platform: ${STT_PLATFORM:-linux/amd64}
+    platform: ${STT_PLATFORM:-linux/aarch64}
     container_name: vrm-stt
     restart: unless-stopped
     <<: *nvidia
     volumes:
       - ${STT_MODEL_LOCAL_DIR:-./models/stt}:${STT_MODEL_DIR:-/models}:ro
+    environment:
+      - STT_COMMAND=${STT_COMMAND:-sherpa-onnx-offline-websocket-server --port=${STT_PORT:-6006} --tokens=${STT_TOKENS:-/models/tokens.txt} --encoder=${STT_ENCODER:-/models/encoder.onnx} --decoder=${STT_DECODER:-/models/decoder.onnx} --joiner=${STT_JOINER:-/models/joiner.onnx} --provider=${STT_PROVIDER_RUNTIME:-cpu} --num-threads=${STT_NUM_THREADS:-4} --max-batch-size=${STT_MAX_BATCH_SIZE:-8}}
+      - LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-/usr/local/lib/python3.12/dist-packages/sherpa_onnx/lib}
     ports:
       - "${STT_PORT:-6006}:${STT_PORT:-6006}"
     healthcheck:
@@ -176,20 +166,12 @@ services:
     container_name: vrm-tts
     restart: unless-stopped
     <<: *nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${TTS_GPU_COUNT:-1}
-              capabilities:
-                - gpu
     volumes:
       - ${TTS_MODEL_LOCAL_DIR:-./models/tts}:${TTS_MODEL_DIR:-/models}:ro
     environment:
       - API_SERVER_NAME=0.0.0.0
       - API_SERVER_PORT=${TTS_PORT:-7007}
-      - BACKEND=${TTS_BACKEND:-cpu}
+      - BACKEND=${TTS_BACKEND:-cuda}
     command: >-
       bash -lc "${TTS_COMMAND:-/app/start_server.sh}"
     ports:
@@ -214,19 +196,25 @@ services:
       retries: 5
 
   embedding:
-    image: ${EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:1.5}
-    platform: ${EMBEDDING_PLATFORM:-linux/amd64}
+    image: ${EMBEDDING_IMAGE:-tei-cuda-arm64:120}
+    platform: ${EMBEDDING_PLATFORM:-linux/aarch64}
     container_name: vrm-embedding
     restart: unless-stopped
+    <<: *nvidia
     environment:
       - MODEL_ID=${EMBEDDING_MODEL:-intfloat/multilingual-e5-base}
       - MAX_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-16}
       - HUGGING_FACE_HUB_TOKEN=${HUGGINGFACEHUB_API_TOKEN:-}
       - PORT=${EMBEDDING_PORT:-9000}
+      - HF_HOME=${EMBEDDING_MODEL_DIR:-/data}
+    command: >-
+      --model-id ${EMBEDDING_MODEL:-intfloat/multilingual-e5-base}
+      --port ${EMBEDDING_PORT:-9000}
+      --auto-truncate
     ports:
       - "${EMBEDDING_PORT:-9000}:${EMBEDDING_PORT:-9000}"
     volumes:
-      - ${EMBEDDING_MODEL_LOCAL_DIR:-./models/embedding}:${EMBEDDING_MODEL_DIR:-/models}:ro
+      - ${EMBEDDING_MODEL_LOCAL_DIR:-./models/embedding}:${EMBEDDING_MODEL_DIR:-/data}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:${EMBEDDING_PORT:-9000}/health || exit 1"]
       interval: 30s
