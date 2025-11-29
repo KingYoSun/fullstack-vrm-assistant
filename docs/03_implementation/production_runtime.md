@@ -8,9 +8,36 @@
 ## 環境変数の要点
 - LLM: `LLM_IMAGE`（vLLM）、`LLM_MODEL_PATH`（例: `/models/gpt-oss-120b`）、`LLM_GPU_COUNT`/`LLM_TP_SIZE`、`LLM_ENDPOINT`。
 - STT: `STT_IMAGE`（sherpa-onnx）、`STT_MODEL_DIR`、`STT_COMMAND`（WebSocket サーバ起動コマンドを上書き可能）、`STT_ENDPOINT`。
-- TTS: `TTS_IMAGE`（Open Audio S1 サーバ想定）、`TTS_MODEL_DIR`、`TTS_COMMAND`、`TTS_ENDPOINT`。
+- TTS: `TTS_IMAGE`（Open Audio S1 サーバ想定。デフォルトは自前ビルドの `local/openvoice:cpu`）、`TTS_MODEL_DIR`、`TTS_COMMAND`、`TTS_ENDPOINT`。
 - Embedding: `EMBEDDING_IMAGE`（Hugging Face text-embeddings-inference）、`EMBEDDING_MODEL`、`EMBEDDING_PORT`。Hugging Face トークンが必要なら `HUGGINGFACEHUB_API_TOKEN` をセット。
 - モデル配置: `./models/{llm,stt,tts,embedding}` をホスト側の標準配置としてボリュームマウント。
+- プラットフォーム: ARM ホストの場合は `*_PLATFORM=linux/amd64` を `.env` で指定してイメージを引く（qemu 必要）。ネイティブ arm64 イメージが不要ならこのまま、arm64 対応イメージを自前で用意する場合はタグを差し替えてください。
+
+## STT/TTS を自前ビルドする場合
+- TTS (Fish Speech/OpenVoice): `docker-compose.yml` は fish-speech リポジトリを `target: server` でビルドする設定に変更済み。デフォルトタグは `local/openvoice:cpu`、バックエンドは `TTS_BACKEND=cpu`（ARM でもビルド可）。ビルドコマンド例:
+  ```bash
+  docker compose build tts  # CPUビルド (platformは.envのTTS_PLATFORMに従う)
+  ```
+  モデルは `./models/tts` を `/models` にマウントする。GPU を使う場合は `.env` の `TTS_BACKEND=cuda`、`TTS_PLATFORM=linux/amd64` とし、NVIDIA 環境 + buildx/qemu を用意する。
+- STT (sherpa-onnx): `docker/stt-sherpa/Dockerfile` を追加し、pip 版 `sherpa-onnx` で WebSocket サーバを起動するイメージを `local/sherpa-onnx:cpu` としてビルド。ビルドコマンド例:
+  ```bash
+  docker compose build stt
+  ```
+  モデルは `./models/stt` を `/models` にマウントし、環境変数でパスを調整可能（例: `STT_ENCODER=/models/encoder.onnx`）。`STT_PROVIDER_RUNTIME` で `cuda` 指定も可能だが、別途 CUDA ベースのイメージを用意する必要あり。
+
+### CUDA ビルドの指定（Fish Speech: cu128 / sherpa-onnx: cu128）
+- TTS (Fish Speech/OpenVoice, cu128): `docker/tts-fish-speech/Dockerfile` をベースに NGC の PyTorch ARM64 イメージからビルド。`.env` の `TTS_IMAGE=local/openvoice:cuda` のまま `docker compose build tts` を実行（ARM64 はそのまま、x86_64 でビルドする場合は `TTS_PLATFORM=linux/amd64` を指定）。
+- STT (sherpa-onnx, cu128): `.env` で `STT_BACKEND=cuda`、`STT_CUDA_VERSION=12.8.0` をセットし、`docker compose build stt` で CUDA 版をビルド。compose に `runtime: nvidia` が指定されているため、GPU ホストで実行すること。`STT_PROVIDER_RUNTIME=cuda` を合わせて設定すると onnxruntime GPU を利用可能。
+
+#### ARM ホストで CUDA イメージをビルドする場合
+- 事前に qemu/binfmt を登録し、buildx を有効化する（例）:
+  ```bash
+  docker run --privileged --rm tonistiigi/binfmt --install amd64
+  docker buildx create --name multi --use
+  ```
+- その上で `docker compose build tts stt` を実行。登録がないと `exec format error` で失敗する。
+- qemu が使えない環境では、`*_BACKEND=cpu` と `*_PLATFORM=linux/arm64` に切り替えて CPU ビルドを行う。
+- aarch64 + CUDA の wheel を自前で用意する場合は `tools/wheels/README.md` を参照し、cibuildwheel で torch 2.8.0+cu128 / sherpa-onnx 1.12.18 の wheel を `wheels/` 配下に配置してから Docker ビルドで参照する。TTS は NGC PyTorch ベースの `docker/tts-fish-speech/Dockerfile` を推奨（cu128 aarch64 wheel を公式 index から取得するため）。
 
 ## プロバイダセットアップ例
 1. LLM (gpt-oss-120b, vLLM)

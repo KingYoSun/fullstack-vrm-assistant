@@ -90,6 +90,7 @@ services:
 
   llm:
     image: ${LLM_IMAGE:-vllm/vllm-openai:latest}
+    platform: ${LLM_PLATFORM:-linux/amd64}
     container_name: vrm-llm
     restart: unless-stopped
     <<: *nvidia
@@ -135,22 +136,19 @@ services:
       retries: 5
 
   stt:
-    image: ${STT_IMAGE:-ghcr.io/k2-fsa/sherpa-onnx:latest}
+    image: ${STT_IMAGE:-local/sherpa-onnx:cuda}
+    build:
+      context: .
+      dockerfile: ${STT_DOCKERFILE:-docker/stt-sherpa/Dockerfile}
+      args:
+        BACKEND: ${STT_BACKEND:-cuda}
+        CUDA_VER: ${STT_CUDA_VERSION:-12.8.0}
+    platform: ${STT_PLATFORM:-linux/amd64}
     container_name: vrm-stt
     restart: unless-stopped
     <<: *nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${STT_GPU_COUNT:-1}
-              capabilities:
-                - gpu
     volumes:
       - ${STT_MODEL_LOCAL_DIR:-./models/stt}:${STT_MODEL_DIR:-/models}:ro
-    command: >-
-      bash -lc "${STT_COMMAND:-python3 -m sherpa_onnx.python_api.offline_websocket_server --port ${STT_PORT:-6006} --tokens ${STT_MODEL_DIR:-/models}/tokens.txt --encoder-onnx ${STT_MODEL_DIR:-/models}/encoder.onnx --decoder-onnx ${STT_MODEL_DIR:-/models}/decoder.onnx --joiner-onnx ${STT_MODEL_DIR:-/models}/joiner.onnx --provider cuda --max-batch-size 8 --num-threads 4}"
     ports:
       - "${STT_PORT:-6006}:${STT_PORT:-6006}"
     healthcheck:
@@ -171,7 +169,10 @@ services:
       retries: 5
 
   tts:
-    image: ${TTS_IMAGE:-ghcr.io/fishaudio/openvoice:latest}
+    image: ${TTS_IMAGE:-local/openvoice:cuda}
+    build:
+      context: .
+      dockerfile: docker/tts-fish-speech/Dockerfile
     container_name: vrm-tts
     restart: unless-stopped
     <<: *nvidia
@@ -185,8 +186,12 @@ services:
                 - gpu
     volumes:
       - ${TTS_MODEL_LOCAL_DIR:-./models/tts}:${TTS_MODEL_DIR:-/models}:ro
+    environment:
+      - API_SERVER_NAME=0.0.0.0
+      - API_SERVER_PORT=${TTS_PORT:-7007}
+      - BACKEND=${TTS_BACKEND:-cpu}
     command: >-
-      bash -lc "${TTS_COMMAND:-python3 -m server --port ${TTS_PORT:-7007} --model-dir ${TTS_MODEL_DIR:-/models} --device cuda}"
+      bash -lc "${TTS_COMMAND:-/app/start_server.sh}"
     ports:
       - "${TTS_PORT:-7007}:${TTS_PORT:-7007}"
     healthcheck:
@@ -198,7 +203,7 @@ services:
           port = int("${TTS_PORT:-7007}")
           try:
               conn = http.client.HTTPConnection("localhost", port, timeout=5)
-              conn.request("GET", "/health")
+              conn.request("GET", "/v1/health")
               resp = conn.getresponse()
               sys.exit(0 if resp.status < 500 else 1)
           except Exception:
@@ -210,6 +215,7 @@ services:
 
   embedding:
     image: ${EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:1.5}
+    platform: ${EMBEDDING_PLATFORM:-linux/amd64}
     container_name: vrm-embedding
     restart: unless-stopped
     environment:
