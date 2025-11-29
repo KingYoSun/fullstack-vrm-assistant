@@ -18,16 +18,26 @@ class EmbeddingClient:
         self.config = config
         self._http_client = http_client
         self._sync_client = sync_client
+        self.fallback_count = 0
 
     async def aembed(self, texts: list[str]) -> list[list[float]]:
         try:
             result = await self._request_async(texts)
             if result:
                 return result
-            logger.warning("Embedding provider returned empty result; using fallback.")
+            self.fallback_count += 1
+            logger.warning(
+                "Embedding provider returned empty result; using fallback.",
+                extra={"fallback": True},
+            )
             return [self._fallback_embedding(text) for text in texts]
         except Exception as exc:
-            logger.warning("Embedding async request failed: %s", exc)
+            self.fallback_count += 1
+            logger.warning(
+                "Embedding async request failed: %s",
+                exc,
+                extra={"fallback": True},
+            )
             return [self._fallback_embedding(text) for text in texts]
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -35,10 +45,19 @@ class EmbeddingClient:
             result = self._request_sync(texts)
             if result:
                 return result
-            logger.warning("Embedding provider returned empty result; using fallback.")
+            self.fallback_count += 1
+            logger.warning(
+                "Embedding provider returned empty result; using fallback.",
+                extra={"fallback": True},
+            )
             return [self._fallback_embedding(text) for text in texts]
         except Exception as exc:
-            logger.warning("Embedding sync request failed: %s", exc)
+            self.fallback_count += 1
+            logger.warning(
+                "Embedding sync request failed: %s",
+                exc,
+                extra={"fallback": True},
+            )
             return [self._fallback_embedding(text) for text in texts]
 
     async def _request_async(self, texts: list[str]) -> list[list[float]]:

@@ -15,6 +15,7 @@ class TTSClient:
     def __init__(self, config: TTSProviderConfig, http_client: httpx.AsyncClient):
         self.config = config
         self._http_client = http_client
+        self.fallback_count = 0
 
     @property
     def sample_rate(self) -> int:
@@ -57,7 +58,12 @@ class TTSClient:
                         yield chunk
                 return
         except Exception as exc:  # noqa: BLE001
-            logger.warning("TTS provider failed, fallback to silent audio: %s", exc)
+            self.fallback_count += 1
+            logger.warning(
+                "TTS provider failed, fallback to silent audio: %s",
+                exc,
+                extra={"fallback": True},
+            )
 
         async for chunk in self._fallback_stream(text):
             yield chunk

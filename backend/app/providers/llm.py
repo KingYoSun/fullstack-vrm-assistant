@@ -28,6 +28,7 @@ class LLMClient:
         self.config = config
         self._http_client = http_client
         self._api_key = api_key
+        self.fallback_count = 0
 
     async def stream_chat(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
         if not messages:
@@ -42,7 +43,10 @@ class LLMClient:
                 if text:
                     yield text
         except Exception as exc:
-            logger.exception("LLM streaming failed: %s", exc)
+            self.fallback_count += 1
+            logger.exception(
+                "LLM streaming failed: %s", exc, extra={"fallback": True}
+            )
             async for fallback in self._fallback_response(messages):
                 yield fallback
 

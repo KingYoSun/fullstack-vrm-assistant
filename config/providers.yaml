@@ -1,37 +1,41 @@
 llm:
-  provider: "local-gpt-oss-120b"
-  endpoint: "http://llm:18000/v1"
-  model: "gpt-oss-120b"
-  temperature: 0.6
-  max_tokens: 1024
-  timeout_sec: 30
-  stream: true
+  provider: ${LLM_PROVIDER}
+  endpoint: ${LLM_ENDPOINT}
+  model: ${LLM_MODEL}
+  temperature: ${LLM_TEMPERATURE}
+  max_tokens: ${LLM_MAX_TOKENS}
+  timeout_sec: ${LLM_TIMEOUT_SEC}
+  stream: ${LLM_STREAM}
 
 stt:
-  provider: "sherpa-onnx"
-  endpoint: "ws://stt:6006/ws"
-  language: "ja-JP"
-  target_sample_rate: 16000
-  enable_partial: true
-  vad: "reazon-speech"
+  provider: ${STT_PROVIDER}
+  endpoint: ${STT_ENDPOINT}
+  language: ${STT_LANGUAGE}
+  target_sample_rate: ${STT_TARGET_SAMPLE_RATE}
+  enable_partial: ${STT_ENABLE_PARTIAL}
+  vad: ${STT_VAD}
+  timeout_sec: ${STT_TIMEOUT_SEC}
 
 tts:
-  provider: "open-audio-s1"
-  endpoint: "http://tts:7007"
-  default_voice: "ja_female_1"
-  language: "ja-JP"
-  output_format: "opus"
-  sample_rate: 44100
-  stream: true
+  provider: ${TTS_PROVIDER}
+  endpoint: ${TTS_ENDPOINT}
+  default_voice: ${TTS_DEFAULT_VOICE}
+  language: ${TTS_LANGUAGE}
+  output_format: ${TTS_OUTPUT_FORMAT}
+  sample_rate: ${TTS_SAMPLE_RATE}
+  stream: ${TTS_STREAM}
+  chunk_ms: ${TTS_CHUNK_MS}
+  timeout_sec: ${TTS_TIMEOUT_SEC}
 
 rag:
-  provider: "faiss"
-  index_path: "/data/faiss/index.bin"
-  top_k: 5
-  embedding_provider: "local-embedding"
+  provider: ${RAG_PROVIDER}
+  index_path: ${RAG_INDEX_PATH}
+  top_k: ${RAG_TOP_K}
+  embedding_provider: ${RAG_EMBEDDING_PROVIDER}
 
 embedding:
-  provider: "local-embedding"
-  endpoint: "http://embedding:9000/v1"
-  model: "intfloat/multilingual-e5-base"
-  batch_size: 16
+  provider: ${EMBEDDING_PROVIDER}
+  endpoint: ${EMBEDDING_ENDPOINT}
+  model: ${EMBEDDING_MODEL}
+  batch_size: ${EMBEDDING_BATCH_SIZE}
+  timeout_sec: ${EMBEDDING_TIMEOUT_SEC}

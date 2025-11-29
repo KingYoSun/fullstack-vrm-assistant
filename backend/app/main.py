@@ -23,6 +23,17 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _collect_provider_warnings(status: dict[str, dict[str, Any]]) -> list[str]:
+    warnings: list[str] = []
+    for name, info in status.items():
+        if info.get("is_mock"):
+            warnings.append(f"{name}: mock provider in use")
+        fallback_count = info.get("fallback_count", 0)
+        if isinstance(fallback_count, int) and fallback_count > 0:
+            warnings.append(f"{name}: fallback used {fallback_count} time(s)")
+    return warnings
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     providers_config = load_providers_config(settings.providers_config_path)
@@ -78,10 +89,12 @@ async def add_request_id_context(request: Request, call_next):
 
 @app.get("/health")
 async def health(providers: ProviderRegistry = Depends(dependencies.get_provider_registry)):
+    provider_status = providers.status()
     return {
         "app": settings.app_name,
         "version": settings.app_version,
-        "providers": providers.summary(),
+        "providers": provider_status,
+        "warnings": _collect_provider_warnings(provider_status),
     }
 
 
@@ -90,6 +103,8 @@ async def ready(
     providers: ProviderRegistry = Depends(dependencies.get_provider_registry),
     rag_service: RagService = Depends(dependencies.get_rag_service),
 ) -> dict[str, Any]:
+    provider_status = providers.status()
+    provider_warnings = _collect_provider_warnings(provider_status)
     db_status = "not_initialized"
     db_ok = False
     if db_session.engine is not None:
@@ -102,11 +117,12 @@ async def ready(
             db_status = f"error: {exc}"
 
     rag_ready = rag_service.is_loaded
-    status = "ok" if db_ok and rag_ready else "degraded"
+    status = "ok" if db_ok and rag_ready and not provider_warnings else "degraded"
 
     return {
         "status": status,
-        "providers": providers.summary(),
+        "providers": provider_status,
         "database": db_status,
         "rag_index_loaded": rag_ready,
+        "warnings": provider_warnings,
     }

@@ -1,0 +1,306 @@
+name: fullstack-vrm-assistant
+
+x-common-env: &common-env
+  env_file:
+    - .env
+
+x-nvidia: &nvidia
+  runtime: nvidia
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities:
+              - gpu
+
+services:
+  backend:
+    image: python:3.12-slim
+    container_name: vrm-backend
+    restart: unless-stopped
+    working_dir: /workspace/backend
+    command: >-
+      sh -c "
+        cd /workspace/backend &&
+        apt-get update &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+          ffmpeg build-essential curl &&
+        rm -rf /var/lib/apt/lists/* &&
+        python -m pip install --no-cache-dir --upgrade pip setuptools wheel &&
+        if [ -f requirements.dev.txt ]; then
+          PIP_NO_BUILD_ISOLATION=1 pip install --no-cache-dir -r requirements.dev.txt;
+        else
+          echo 'requirements.dev.txt が見つかりません。依存を追加後に再実行してください。';
+        fi &&
+        if [ -f app/main.py ]; then
+          uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000};
+        else
+          echo 'app/main.py が見つかりません。バックエンド初期化後に再起動してください。' &&
+          tail -f /dev/null;
+        fi
+      "
+    volumes:
+      - ./backend:/workspace/backend
+      - ./config:/workspace/config:ro
+      - ./data:/data
+    <<: *common-env
+    environment:
+      - PROVIDERS_CONFIG_PATH=${PROVIDERS_CONFIG_PATH:-/workspace/config/providers.yaml}
+      - PYTHONPATH=/workspace/backend
+    ports:
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${BACKEND_PORT:-8000}/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  frontend:
+    image: node:20-bullseye
+    container_name: vrm-frontend
+    restart: unless-stopped
+    working_dir: /workspace/frontend
+    command: >-
+      sh -c "
+        cd /workspace/frontend &&
+        corepack enable &&
+        if [ -f package.json ]; then
+          pnpm install --frozen-lockfile=false &&
+          pnpm build &&
+          pnpm preview -- --host --port ${FRONTEND_PORT:-5173};
+        else
+          echo 'package.json が見つかりません。Vite+React 初期化後に再起動してください。' &&
+          tail -f /dev/null;
+        fi
+      "
+    volumes:
+      - ./frontend:/workspace/frontend
+      - frontend_node_modules:/workspace/frontend/node_modules
+    <<: *common-env
+    ports:
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
+    depends_on:
+      backend:
+        condition: service_started
+
+  llm:
+    image: ${LLM_IMAGE:-vllm/vllm-openai:latest}
+    container_name: vrm-llm
+    restart: unless-stopped
+    <<: *nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${LLM_GPU_COUNT:-1}
+              capabilities:
+                - gpu
+    volumes:
+      - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/models}:ro
+    environment:
+      - HF_HOME=/models/cache
+    command: >-
+      python3 -m vllm.entrypoints.openai.api_server
+        --model ${LLM_MODEL_PATH:-/models/gpt-oss-120b}
+        --host 0.0.0.0
+        --port ${LLM_PORT:-18000}
+        --tensor-parallel-size ${LLM_TP_SIZE:-1}
+        --gpu-memory-utilization ${LLM_GPU_MEM_UTIL:-0.9}
+        --max-num-seqs ${LLM_MAX_NUM_SEQS:-4}
+    ports:
+      - "${LLM_PORT:-18000}:${LLM_PORT:-18000}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python3 - <<'PY'
+          import http.client, sys
+          port = int("${LLM_PORT:-18000}")
+          try:
+              conn = http.client.HTTPConnection("localhost", port, timeout=5)
+              conn.request("GET", "/health")
+              resp = conn.getresponse()
+              sys.exit(0 if resp.status < 500 else 1)
+          except Exception:
+              sys.exit(1)
+          PY
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  stt:
+    image: ${STT_IMAGE:-ghcr.io/k2-fsa/sherpa-onnx:latest}
+    container_name: vrm-stt
+    restart: unless-stopped
+    <<: *nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${STT_GPU_COUNT:-1}
+              capabilities:
+                - gpu
+    volumes:
+      - ${STT_MODEL_LOCAL_DIR:-./models/stt}:${STT_MODEL_DIR:-/models}:ro
+    command: >-
+      bash -lc "${STT_COMMAND:-python3 -m sherpa_onnx.python_api.offline_websocket_server --port ${STT_PORT:-6006} --tokens ${STT_MODEL_DIR:-/models}/tokens.txt --encoder-onnx ${STT_MODEL_DIR:-/models}/encoder.onnx --decoder-onnx ${STT_MODEL_DIR:-/models}/decoder.onnx --joiner-onnx ${STT_MODEL_DIR:-/models}/joiner.onnx --provider cuda --max-batch-size 8 --num-threads 4}"
+    ports:
+      - "${STT_PORT:-6006}:${STT_PORT:-6006}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python3 - <<'PY'
+          import socket, sys
+          port = int("${STT_PORT:-6006}")
+          try:
+              with socket.create_connection(("localhost", port), timeout=5):
+                  sys.exit(0)
+          except Exception:
+              sys.exit(1)
+          PY
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  tts:
+    image: ${TTS_IMAGE:-ghcr.io/fishaudio/openvoice:latest}
+    container_name: vrm-tts
+    restart: unless-stopped
+    <<: *nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${TTS_GPU_COUNT:-1}
+              capabilities:
+                - gpu
+    volumes:
+      - ${TTS_MODEL_LOCAL_DIR:-./models/tts}:${TTS_MODEL_DIR:-/models}:ro
+    command: >-
+      bash -lc "${TTS_COMMAND:-python3 -m server --port ${TTS_PORT:-7007} --model-dir ${TTS_MODEL_DIR:-/models} --device cuda}"
+    ports:
+      - "${TTS_PORT:-7007}:${TTS_PORT:-7007}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python3 - <<'PY'
+          import http.client, sys
+          port = int("${TTS_PORT:-7007}")
+          try:
+              conn = http.client.HTTPConnection("localhost", port, timeout=5)
+              conn.request("GET", "/health")
+              resp = conn.getresponse()
+              sys.exit(0 if resp.status < 500 else 1)
+          except Exception:
+              sys.exit(1)
+          PY
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  embedding:
+    image: ${EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:1.5}
+    container_name: vrm-embedding
+    restart: unless-stopped
+    environment:
+      - MODEL_ID=${EMBEDDING_MODEL:-intfloat/multilingual-e5-base}
+      - MAX_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-16}
+      - HUGGING_FACE_HUB_TOKEN=${HUGGINGFACEHUB_API_TOKEN:-}
+      - PORT=${EMBEDDING_PORT:-9000}
+    ports:
+      - "${EMBEDDING_PORT:-9000}:${EMBEDDING_PORT:-9000}"
+    volumes:
+      - ${EMBEDDING_MODEL_LOCAL_DIR:-./models/embedding}:${EMBEDDING_MODEL_DIR:-/models}:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${EMBEDDING_PORT:-9000}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: vrm-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-vrm}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-vrm_password}
+      - POSTGRES_DB=${POSTGRES_DB:-vrm}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vrm}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  llm-mock:
+    image: docker.io/ealen/echo-server:latest
+    container_name: vrm-llm-mock
+    profiles:
+      - mock
+    environment:
+      - PORT=${LLM_PORT:-18000}
+    ports:
+      - "${LLM_PORT:-18000}:${LLM_PORT:-18000}"
+    networks:
+      default:
+        aliases:
+          - llm
+
+  stt-mock:
+    image: docker.io/ealen/echo-server:latest
+    container_name: vrm-stt-mock
+    profiles:
+      - mock
+    environment:
+      - PORT=${STT_PORT:-6006}
+    ports:
+      - "${STT_PORT:-6006}:${STT_PORT:-6006}"
+    networks:
+      default:
+        aliases:
+          - stt
+
+  tts-mock:
+    image: docker.io/ealen/echo-server:latest
+    container_name: vrm-tts-mock
+    profiles:
+      - mock
+    environment:
+      - PORT=${TTS_PORT:-7007}
+    ports:
+      - "${TTS_PORT:-7007}:${TTS_PORT:-7007}"
+    networks:
+      default:
+        aliases:
+          - tts
+
+  embedding-mock:
+    image: docker.io/ealen/echo-server:latest
+    container_name: vrm-embedding-mock
+    profiles:
+      - mock
+    environment:
+      - PORT=${EMBEDDING_PORT:-9000}
+    ports:
+      - "${EMBEDDING_PORT:-9000}:${EMBEDDING_PORT:-9000}"
+    networks:
+      default:
+        aliases:
+          - embedding
+
+volumes:
+  frontend_node_modules:
+  postgres_data:

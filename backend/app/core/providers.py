@@ -1,3 +1,5 @@
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +64,25 @@ class ProvidersConfig(BaseModel):
     model_config = {"extra": "ignore"}
 
 
+_ENV_PATTERN = re.compile(r"\$\{[^}]+\}|\$[A-Za-z0-9_]+")
+
+
+def _resolve_env_vars(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {key: _resolve_env_vars(value) for key, value in data.items()}
+    if isinstance(data, list):
+        return [_resolve_env_vars(value) for value in data]
+    if isinstance(data, str):
+        expanded = os.path.expandvars(data)
+        if _ENV_PATTERN.search(expanded):
+            msg = f"Environment variable not set for providers config value: {data}"
+            raise ValueError(msg)
+        return expanded
+    return data
+
+
 def load_providers_config(path: Path) -> ProvidersConfig:
     content = path.read_text(encoding="utf-8")
-    data: dict[str, Any] = yaml.safe_load(content)
-    return ProvidersConfig.model_validate(data)
+    data: dict[str, Any] = yaml.safe_load(content) or {}
+    resolved = _resolve_env_vars(data)
+    return ProvidersConfig.model_validate(resolved)

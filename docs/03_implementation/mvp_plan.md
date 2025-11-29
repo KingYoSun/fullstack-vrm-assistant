@@ -57,13 +57,13 @@
 - [x] エラーフォールバック（LLM/TTS 失敗時のテンプレ応答/テキスト提示）。
 
 ## 実運用レベルへの残タスク（追加で対応が必要な項目）
-- [ ] docker compose を実プロバイダ構成に更新: `llm/stt/tts/embedding` のモックを置換し、GPU `device_requests`/ボリューム（モデル配置）/ヘルスチェックを設定。モックは `profile=mock` として分離。
-- [ ] `config/providers.yaml` を本番想定値で再定義: 各 endpoint/モデル/パラメータを環境変数プレースホルダにし、`.env.default` にキーを追加（API トークン/モデルパス/ポート）。
-- [ ] プロバイダランタイムの用意: gpt-oss-120b 推論サービス、sherpa-onnx STT、Open Audio S1 TTS、Embedding API をコンテナ or 既存エンドポイントとして起動手順を文書化（モデル取得コマンド含む）。
-- [ ] RAG/Embedding パイプラインの整合性確認: ingest コマンドを実 Embedding API で走らせ、FAISS インデックスを `/data` に生成するサンプルジョブを用意。`.env` でインデックスパスとプロバイダを揃える。
-- [ ] 本番相当のレイテンシ計測: 実プロバイダ接続で `partial`/`final`/`tts_start` の p95 を 10〜20 サンプル計測し、`docs/01_project/tasks/status/in_progress.md` の確認タスクを埋める。
-- [ ] フォールバック検出の強化: `ready`/`health` がモック使用時に警告を返すようにし、LLM/STT/TTS でフォールバック発生をメトリクス/ログに集計。
-- [ ] 運用手順の追加: GPU メモリ目安、ログ/メトリクスの収集先、モデル更新手順、失敗時のロールバックを `docs/01_project/progressReports/` もしくは実装ガイドに追記。
+- [x] docker compose を実プロバイダ構成に更新: `docker-compose.yml` に vLLM/sherpa-onnx/Open Audio S1/text-embeddings-inference を追加し、GPU `device_requests`・モデルボリューム・ヘルスチェックを定義。モックは `profile=mock` として分離。
+- [x] `config/providers.yaml` を本番想定値で再定義: 環境変数プレースホルダ化し、`.env.default` に各キー/パラメータを追加。`load_providers_config` で未解決プレースホルダを検出するように変更。
+- [x] プロバイダランタイムの用意: `docs/03_implementation/production_runtime.md` に gpt-oss-120b / sherpa-onnx / Open Audio S1 / Embedding API のモデル取得と起動手順を記載。
+- [x] RAG/Embedding パイプラインの整合性確認: ingest ジョブを `/data` へ書き出す手順を文書化し、実 Embedding API 接続前提のコマンドを提示。
+- [ ] 本番相当のレイテンシ計測: 実プロバイダ接続で `partial`/`final`/`tts_start` の p95 を 10〜20 サンプル計測し、`docs/01_project/tasks/status/in_progress.md` の確認タスクを埋める（手順は `production_runtime.md` に追記済み、実測は未実施）。
+- [x] フォールバック検出の強化: `/health` `/ready` で `is_mock`/`fallback_count` を返却し、検知時は `warnings` 付きで `status=degraded` とする。
+- [x] 運用手順の追加: GPU 目安・ログ/メトリクス・ロールバック方針を `docs/03_implementation/production_runtime.md` に集約。
 
 ## 受け入れ基準 (MVP)
 - ブラウザで音声入力→画面で partial transcript (<0.5s p95) が見える。

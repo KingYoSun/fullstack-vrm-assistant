@@ -16,6 +16,7 @@ class STTClient:
     def __init__(self, config: STTProviderConfig, http_client: httpx.AsyncClient):
         self.config = config
         self._http_client = http_client
+        self.fallback_count = 0
 
     def build_partial(self, audio_chunks: Deque[bytes]) -> str:
         """受信中のチャンク数から簡易 partial transcript を生成する。"""
@@ -95,6 +96,11 @@ class STTClient:
         return str(message).strip()
 
     def _mock_transcript(self, byte_length: int) -> str:
+        self.fallback_count += 1
+        logger.warning(
+            "STT fallback transcript generated",
+            extra={"fallback": True},
+        )
         seconds = max(byte_length // 32000, 0)  # 16kHz * 2bytes ≈ 32kB/sec
         if seconds:
             return f"(mock) received ~{seconds}s of audio"
