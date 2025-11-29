@@ -4,10 +4,11 @@
 - 単独ユーザーがブラウザから音声で話し、<500ms で partial STT、発話終了後 p95 2s 以内に TTS が再生開始する一連の会話体験を成立させる。
 - WebSocket を介した音声/テキストのストリーミングと three-vrm の簡易リップシンク表示をデモできる状態にする。
 - LLM 応答は RAG あり（簡易 FAISS インデックス）で返す。
+- LLM/STT/TTS/Embedding は実プロバイダ（本番想定エンドポイント）で動作し、モックは dev 検証用のオプションにとどめる。
 
 ## 前提/制約
-- docker compose ベースの dev/prod 両対応（dev はソース bind mount + ホットリロード）。
-- Provider 設定は `config/providers.yaml` を使用（llm/stt/tts/rag/embedding）。
+- docker compose ベースの dev/prod 両対応（dev も原則実プロバイダ接続、本番と同一のサービス名/ポート。GPU なし環境向けに mock/軽量モデルのプロファイルを併設）。
+- Provider 設定は `config/providers.yaml` を使用（llm/stt/tts/rag/embedding）。エンドポイントは環境変数経由で実プロバイダ URL/トークンを差し込む。
 - 音声: 44.1kHz/16bit → Opus 32kbps エンコード、20ms チャンク送信を標準。
 - 単独ユーザー、インフラ側で認証済み、アプリはセッションID/固定トークンのみ。
 - three-vrm 表示は react-three-fiber を用い、UI コンポーネントは shadcn/ui を採用する。
@@ -15,7 +16,7 @@
 ## スコープ
 - Backend: FastAPI WebSocket/REST、会話オーケストレーション、Provider 抽象化、RAG (LangChain+FAISS)、ログ最小限。
 - Frontend: マイク取得→Opus送信、TTS受信→再生、テキストログ表示、three-vrm ベースの簡易アバター＋口パク。
-- DevOps: dev 用 compose（GPU なしでも STT/TTS をモック/軽量化できるようにする）、prod サンプル compose。
+- DevOps: dev/prod compose に実プロバイダサービス（もしくは実サーバーへのエイリアス）を定義し、GPU リソース指定・モデル配置・シークレット管理を含めた運用手順を整備。mock/軽量モデルは別プロファイルで起動可とする。
 
 ## アウトスコープ（MVP後）
 - マルチユーザー/ACL、SSO、詳細な権限管理。
@@ -25,7 +26,7 @@
 ## フェーズ別タスク
 
 ### Phase 0: インフラ雛形
-- [x] `docker-compose.dev.yml` を作成し、backend/frontend を bind mount + ホットリロードで起動できるようにする（llm/stt/tts は一旦モック可）。
+- [x] `docker-compose.dev.yml` を作成し、backend/frontend を bind mount + ホットリロードで起動できるようにする（実プロバイダ接続を基本とし、mock プロファイルは検証用に残す）。
 - [x] `.env` / `.env.default` を用意し、プロバイダエンドポイントやトークンを集約。
 - [x] Makefile もしくは npm scripts で dev サービス起動コマンドをラップ（例: `make dev` / `pnpm dev:docker`）。
 
@@ -55,14 +56,25 @@
 - [x] 簡易ヘルスチェック/ready エンドポイント。
 - [x] エラーフォールバック（LLM/TTS 失敗時のテンプレ応答/テキスト提示）。
 
+## 実運用レベルへの残タスク（追加で対応が必要な項目）
+- [ ] docker compose を実プロバイダ構成に更新: `llm/stt/tts/embedding` のモックを置換し、GPU `device_requests`/ボリューム（モデル配置）/ヘルスチェックを設定。モックは `profile=mock` として分離。
+- [ ] `config/providers.yaml` を本番想定値で再定義: 各 endpoint/モデル/パラメータを環境変数プレースホルダにし、`.env.default` にキーを追加（API トークン/モデルパス/ポート）。
+- [ ] プロバイダランタイムの用意: gpt-oss-120b 推論サービス、sherpa-onnx STT、Open Audio S1 TTS、Embedding API をコンテナ or 既存エンドポイントとして起動手順を文書化（モデル取得コマンド含む）。
+- [ ] RAG/Embedding パイプラインの整合性確認: ingest コマンドを実 Embedding API で走らせ、FAISS インデックスを `/data` に生成するサンプルジョブを用意。`.env` でインデックスパスとプロバイダを揃える。
+- [ ] 本番相当のレイテンシ計測: 実プロバイダ接続で `partial`/`final`/`tts_start` の p95 を 10〜20 サンプル計測し、`docs/01_project/tasks/status/in_progress.md` の確認タスクを埋める。
+- [ ] フォールバック検出の強化: `ready`/`health` がモック使用時に警告を返すようにし、LLM/STT/TTS でフォールバック発生をメトリクス/ログに集計。
+- [ ] 運用手順の追加: GPU メモリ目安、ログ/メトリクスの収集先、モデル更新手順、失敗時のロールバックを `docs/01_project/progressReports/` もしくは実装ガイドに追記。
+
 ## 受け入れ基準 (MVP)
 - ブラウザで音声入力→画面で partial transcript (<0.5s p95) が見える。
 - 発話停止後、LLM 応答が 2s p95 以内に音声再生開始。
 - three-vrm が表示され、音声再生中に口パクが動く。
 - RAG: ローカルで ingest した文書を元に LLM が回答（簡易で可）。
 - `docker compose up`（dev/prod）で一発起動し、接続先エンドポイントは `config/providers.yaml` から解決。
+- LLM/STT/TTS/Embedding は実プロバイダ接続で正常に応答し、通常経路でフォールバックが発火しない。
 
 ## リスク/課題メモ
 - GPU 非搭載環境での dev: STT/TTS をモックまたは軽量モデルに差し替える選択肢を残す。
 - Opus エンコード/デコードのブラウザ互換性（WebCodecs/AudioWorklet）の実装コスト。
 - LLM レイテンシ: gpt-oss-120b が重い場合の代替モデル/パラメータ調整が必要。
+- モデル配布とライセンス: gpt-oss-120b / Open Audio S1 / sherpa-onnx のモデル取得・配布条件を満たす運用フローが必要。
