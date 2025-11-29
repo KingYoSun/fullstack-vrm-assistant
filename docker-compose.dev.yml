@@ -13,10 +13,11 @@ services:
       sh -c "
         cd /workspace/backend &&
         apt-get update &&
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg build-essential &&
         rm -rf /var/lib/apt/lists/* &&
+        python -m pip install --no-cache-dir --upgrade pip setuptools wheel &&
         if [ -f requirements.dev.txt ]; then
-          pip install --no-cache-dir -r requirements.dev.txt;
+          PIP_NO_BUILD_ISOLATION=1 pip install --no-cache-dir -r requirements.dev.txt;
         else
           echo 'requirements.dev.txt が見つかりません。依存を追加後に再実行してください。';
         fi &&
