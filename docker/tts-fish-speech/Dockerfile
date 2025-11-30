@@ -1,11 +1,24 @@
-# Fish Speech / OpenVoice server for aarch64 CUDA (cu128)
-# Base: NVIDIA NGC PyTorch (ARM64対応)
+# Fish Speech / OpenVoice server for aarch64 CUDA (cu129)
 
-FROM nvcr.io/nvidia/pytorch:25.08-py3
+FROM nvidia/cuda:12.9.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DEFAULT_TIMEOUT=100 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=https://pypi.org/simple
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      software-properties-common ca-certificates curl gnupg libgomp1 \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+      python3.12 python3.12-venv python3.12-dev \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && python3 -m ensurepip --upgrade \
+    && python3 -m pip install --upgrade pip setuptools wheel \
+    && rm -rf /var/lib/apt/lists/*
 
 # 音声関連の依存を追加
 RUN apt-get update \
@@ -16,20 +29,12 @@ RUN apt-get update \
 WORKDIR /app
 
 # Fish Speech を取得
-RUN git clone https://github.com/fishaudio/fish-speech.git . 
+RUN git clone https://github.com/KingYoSun/fish-speech.git . 
+RUN git checkout build/dgxspark
 
-# 任意で venv を作成
-RUN python -m venv .venv
-ENV VIRTUAL_ENV=/app/.venv
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-
-# aarch64 用の GPU wheel を公式 cu128 index から導入
-RUN pip install --upgrade pip \
-    && pip install torch torchvision torchaudio \
-       --index-url https://download.pytorch.org/whl/cu128
-
-# Fish Speech 本体を CUDA オプションでインストール
-RUN pip install -e .[cu128]
+# Fish Speech 本体をインストール
+RUN pip install torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 --index-url https://download.pytorch.org/whl/cu129
+RUN pip install --no-cache-dir --retries=5 --timeout=60 -e .[cu129]
 
 # Server mode entrypoint (API)
 ENV API_SERVER_NAME=0.0.0.0 \
@@ -44,7 +49,7 @@ RUN printf '%s\n' \
   'set -euo pipefail' \
   'export BACKEND=${BACKEND:-cuda}' \
   'echo "[tts] Starting Fish Speech API server (backend=${BACKEND})"' \
-  'exec python tools/api_server.py \' \
+  'exec python3 tools/api_server.py \' \
   '  --listen "${API_SERVER_NAME:-0.0.0.0}:${API_SERVER_PORT:-8080}" \' \
   '  --llama-checkpoint-path "${LLAMA_CHECKPOINT_PATH}" \' \
   '  --decoder-checkpoint-path "${DECODER_CHECKPOINT_PATH}" \' \

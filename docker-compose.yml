@@ -167,7 +167,8 @@ services:
     restart: unless-stopped
     <<: *nvidia
     volumes:
-      - ${TTS_MODEL_LOCAL_DIR:-./models/tts}:${TTS_MODEL_DIR:-/models}:ro
+      - ${TTS_MODEL_LOCAL_DIR:-./models/tts}:${TTS_MODEL_DIR:-/app/checkpoints}
+      - ${TTS_REFERENCE_LOCAL_DIR:-./references/tts}:${TTS_REFERENCE_DIR:-/app/references}
     environment:
       - API_SERVER_NAME=0.0.0.0
       - API_SERVER_PORT=${TTS_PORT:-7007}
@@ -196,7 +197,7 @@ services:
       retries: 5
 
   embedding:
-    image: ${EMBEDDING_IMAGE:-tei-cuda-arm64:120}
+    image: ${EMBEDDING_IMAGE:-tei-cuda-arm64:121}
     platform: ${EMBEDDING_PLATFORM:-linux/aarch64}
     container_name: vrm-embedding
     restart: unless-stopped
