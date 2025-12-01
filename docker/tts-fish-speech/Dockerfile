@@ -1,29 +1,21 @@
 # Fish Speech / OpenVoice server for aarch64 CUDA (cu129)
 
-FROM nvidia/cuda:12.9.0-devel-ubuntu22.04
+FROM nvidia/cuda:13.0.2-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PIP_DEFAULT_TIMEOUT=100 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
     PIP_INDEX_URL=https://pypi.org/simple
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-      software-properties-common ca-certificates curl gnupg libgomp1 \
+      software-properties-common ca-certificates curl gnupg libgomp1 wget git ffmpeg libsox-dev portaudio19-dev \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-      python3.12 python3.12-venv python3.12-dev \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
-    && python3 -m ensurepip --upgrade \
-    && python3 -m pip install --upgrade pip setuptools wheel \
-    && rm -rf /var/lib/apt/lists/*
-
-# 音声関連の依存を追加
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-      git ffmpeg libsox-dev portaudio19-dev \
+      python3.12 python3-pip python3.12-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -33,7 +25,7 @@ RUN git clone https://github.com/KingYoSun/fish-speech.git .
 RUN git checkout build/dgxspark
 
 # Fish Speech 本体をインストール
-RUN pip install torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 --index-url https://download.pytorch.org/whl/cu129
+RUN pip install torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 --index-url https://download.pytorch.org/whl/cu130
 RUN pip install --no-cache-dir --retries=5 --timeout=60 -e .[cu129]
 
 # Server mode entrypoint (API)
