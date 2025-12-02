@@ -87,39 +87,20 @@ services:
         condition: service_started
 
   llm:
-    image: ${LLM_IMAGE:-vllm/vllm-openai:latest}
+    image: ${LLM_IMAGE:-nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest}
     platform: ${LLM_PLATFORM:-linux/aarch64}
     container_name: vrm-llm
     restart: unless-stopped
     <<: *nvidia
-    volumes:
-      - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/models}:ro
     environment:
-      - HF_HOME=/models/cache
-    command: >-
-      --model ${LLM_MODEL_PATH:-/models/gpt-oss-120b}
-      --host 0.0.0.0
-      --port ${LLM_PORT:-18000}
-      --tensor-parallel-size ${LLM_TP_SIZE:-1}
-      --gpu-memory-utilization ${LLM_GPU_MEM_UTIL:-0.9}
-      --max-num-seqs ${LLM_MAX_NUM_SEQS:-4}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NGC_API_KEY=${NGC_API_KEY}
+    volumes:
+      - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/opt/nim/workspace}
     ports:
-      - "${LLM_PORT:-18000}:${LLM_PORT:-18000}"
+      - "${LLM_LOCAL_PORT:-18000}:${LLM_PORT:-8000}"
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >
-          python3 - <<'PY'
-          import http.client, sys
-          port = int("${LLM_PORT:-18000}")
-          try:
-              conn = http.client.HTTPConnection("localhost", port, timeout=5)
-              conn.request("GET", "/health")
-              resp = conn.getresponse()
-              sys.exit(0 if resp.status < 500 else 1)
-          except Exception:
-              sys.exit(1)
-          PY
+      test: ["CMD-SHELL", "curl -f http://localhost:18000/v1/health/ready || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
