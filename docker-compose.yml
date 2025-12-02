@@ -118,7 +118,7 @@ services:
     environment:
       - WHISPER_MODEL=${STT_MODEL:-/models/ggml-base.en.bin}
       - WHISPER_PORT=${STT_PORT:-6006}
-      - WHISPER_LANG=${STT_LANG:-ja}
+      - WHISPER_LANG=${STT_LANGUAGE:-ja}
       - WHISPER_THREADS=${STT_THREADS:-16}
     ports:
       - "${STT_PORT:-6006}:${STT_PORT:-6006}"

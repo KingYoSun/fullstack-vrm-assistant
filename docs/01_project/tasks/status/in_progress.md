@@ -2,6 +2,7 @@
 
 - 調査/対応: docker compose ヘルスチェック失敗（backend/embedding/llm/stt/tts の health/restart 確認と対策案整理）
   - backend: apt-get install 行を 1 行に修正し再起動、`vrm-backend` は healthy を確認。
+  - backend: providers.yaml の環境変数未定義で起動失敗していたため、`.env/.env.default` に LLM/STT/Embedding の不足項目を追加して解消。ローカルでプレースホルダ未解決がないことを確認済み（実コンテナの再起動確認はこれから）。
   - llm: command を entrypoint (`vllm serve`) 前提に修正済みだが、`/models/gpt-oss-120b` に config.json 等が無く起動失敗。モデル配置 or マウントが必要。
   - embedding: Candle backend が runtime compute cap 121 / compile cap 120 で不整合。GB10 対応の tei-cuda-arm64 を再ビルドするか、CPU fallback イメージに差し替えて health を通すタスクが残。
   - stt: エントリーポイントを CLI 実行に切替（環境変数で `sherpa-onnx-offline-websocket-server` を呼び出す＋LD_LIBRARY_PATH 設定）。モデルファイル `/models/*.onnx`/tokens.txt が未配置で起動失敗中。モデル配置後に再確認。
