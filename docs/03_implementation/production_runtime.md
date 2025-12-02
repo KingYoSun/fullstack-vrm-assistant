@@ -1,119 +1,77 @@
 # 実運用ランタイム手順（LLM/STT/TTS/Embedding）
 
 ## 全体方針
-- `docker-compose.yml` を本番想定のプロバイダ構成に更新済み（vLLM + sherpa-onnx + Open Audio S1 + text-embeddings-inference）。GPU は `runtime: nvidia` + `device_requests` で要求。
-- `.env.default` に本番用のエンドポイント/モデル/パラメータを環境変数として定義。`cp .env.default .env` で初期化し、各値を実環境に合わせて上書きする。
-- モックは `--profile mock` で起動（echo-server）。本番は `docker compose up -d` で実プロバイダを立ち上げる。
+- DGX Spark (aarch64, CUDA 13.0, SM 12.1) 向けに、LLM=NIM Qwen3-32B、STT=whisper.cpp、TTS=Fish Speech/OpenVoice (Open Audio S1 mini)、Embedding=llama.cpp を前提とした構成に更新済み。
+- `.env.default` にプロバイダのエンドポイント/ポート/モデルパスを集約。`cp .env.default .env` の上で `NGC_API_KEY` や各モデルパス、BACKEND (cuda/cpu) を実環境に合わせて上書きする。
+- GPU を使うコンテナは `llm/stt/tts/embedding` のみ。モデルは `./models/{llm,stt,tts,embedding}` をそれぞれにバインドし、モックは `--profile mock` で echo-server に切り替えられる。
+- STT/TTS/Embedding は付属の Dockerfile から CUDA 13.0 対応でビルド。LLM は NIM イメージを `platform=linux/aarch64` で pull する。
 
-## 環境変数の要点
-- LLM: `LLM_IMAGE`（vLLM）、`LLM_MODEL_PATH`（例: `/models/gpt-oss-120b`）、`LLM_GPU_COUNT`/`LLM_TP_SIZE`、`LLM_ENDPOINT`。
-- STT: `STT_IMAGE`（sherpa-onnx）、`STT_MODEL_DIR`、`STT_COMMAND`（WebSocket サーバ起動コマンドを上書き可能）、`STT_ENDPOINT`。
-- TTS: `TTS_IMAGE`（Open Audio S1 サーバ想定。デフォルトは自前ビルドの `local/openvoice:cpu`）、`TTS_MODEL_DIR`、`TTS_COMMAND`、`TTS_ENDPOINT`。
-- Embedding: `EMBEDDING_IMAGE`（デフォルトは sm120 対応の `tei-cuda-arm64:120` / Hugging Face text-embeddings-inference）、`EMBEDDING_MODEL`、`EMBEDDING_PORT`、`EMBEDDING_MODEL_DIR`（HF キャッシュ用。デフォルト `/data`）。Hugging Face トークンが必要なら `HUGGINGFACEHUB_API_TOKEN` をセット。
-- モデル配置: `./models/{llm,stt,tts,embedding}` をホスト側の標準配置としてボリュームマウント。
-- プラットフォーム: ARM ホストの場合は `*_PLATFORM=linux/amd64` を `.env` で指定してイメージを引く（qemu 必要）。ネイティブ arm64 イメージが不要ならこのまま、arm64 対応イメージを自前で用意する場合はタグを差し替えてください。
+## 主要環境変数 (.env)
+- **LLM**: `LLM_IMAGE` (デフォルト: `nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest`), `LLM_PLATFORM=linux/aarch64`, `LLM_LOCAL_PORT`/`LLM_PORT`, `LLM_MODEL_DIR=/opt/nim/workspace`, `LLM_MODEL=qwen3-32b-instruct`, `LLM_ENDPOINT=http://llm:8000/v1`, `NGC_API_KEY`。
+- **STT**: `STT_IMAGE=local/whisper-stt:cuda`, `STT_MODEL_LOCAL_DIR`, `STT_MODEL=/models/ggml-base.en.bin`（日本語モデルに差し替え可）、`STT_LANGUAGE=ja`, `STT_THREADS`, `STT_ENDPOINT=http://stt:6006/inference`。
+- **TTS**: `TTS_IMAGE=local/openvoice:cuda`, `TTS_MODEL_LOCAL_DIR`, `TTS_REFERENCE_LOCAL_DIR`, `TTS_BACKEND`（cuda/cpu）, `TTS_PORT`, `TTS_DEFAULT_VOICE`, `TTS_OUTPUT_FORMAT=opus`, `TTS_SAMPLE_RATE=44100`。
+- **Embedding**: `EMBEDDING_IMAGE=local/llama-embedding:cuda`, `EMBEDDING_MODEL=/models/embd-model.gguf`, `EMBEDDING_PORT=9000`, `EMBEDDING_PARALLEL/EMBEDDING_UBATCH/EMBEDDING_NGPU/EMBEDDING_POOLING`。
+- **RAG**: `RAG_INDEX_PATH=/data/faiss/index.bin`, `RAG_TOP_K`, `RAG_EMBEDDING_PROVIDER`。
 
-## STT/TTS/Embedding を自前ビルドする場合
-- TTS (Fish Speech/OpenVoice): `docker-compose.yml` は fish-speech リポジトリを `target: server` でビルドする設定に変更済み。デフォルトタグは `local/openvoice:cpu`、バックエンドは `TTS_BACKEND=cpu`（ARM でもビルド可）。ビルドコマンド例:
-  ```bash
-  docker compose build tts  # CPUビルド (platformは.envのTTS_PLATFORMに従う)
-  ```
-  モデルは `./models/tts` を `/models` にマウントする。GPU を使う場合は `.env` の `TTS_BACKEND=cuda`、`TTS_PLATFORM=linux/amd64` とし、NVIDIA 環境 + buildx/qemu を用意する。
-- STT (sherpa-onnx): `docker/stt-sherpa/Dockerfile` を追加し、pip 版 `sherpa-onnx` で WebSocket サーバを起動するイメージを `local/sherpa-onnx:cpu` としてビルド。ビルドコマンド例:
-  ```bash
-  docker compose build stt
-  ```
-  モデルは `./models/stt` を `/models` にマウントし、環境変数でパスを調整可能（例: `STT_ENCODER=/models/encoder.onnx`）。`STT_PROVIDER_RUNTIME` で `cuda` 指定も可能だが、別途 CUDA ベースのイメージを用意する必要あり。
-- Embedding (text-embeddings-inference, sm120/aarch64): DGX Spark (compute capability 12.1) では公式 aarch64 CUDA イメージが未対応のため、PR ブランチ `pr-735` を自前ビルドして `tei-cuda-arm64:120` を使う。
-  ```bash
-  git clone https://github.com/huggingface/text-embeddings-inference.git
-  cd text-embeddings-inference
+## モデル/イメージの準備
+### 1. LLM (NIM Qwen3-32B Instruct)
+- `NGC_API_KEY` を取得し `.env` に設定。
+- モデルキャッシュ用に `mkdir -p ./models/llm`。初回起動時に `/opt/nim/workspace`（上記バインド先）へモデルが自動配置される。
+- NGC ログインが必要な場合:
+```bash
+docker login nvcr.io -u '$oauthtoken' -p "$NGC_API_KEY"
+```
+- ほかの Qwen バリアントを使う場合は `LLM_IMAGE`/`LLM_MODEL` を差し替える。
 
-  # Blackwell 対応の PR ブランチを取得
-  git fetch origin pull/735/head:pr-735
-  git checkout pr-735
+### 2. STT (whisper.cpp CUDA 13.0)
+- モデル配置例（日本語向けは multi-lingual を推奨）:
+```bash
+mkdir -p ./models/stt
+wget -O ./models/stt/ggml-base.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+```
+- `.env` の `STT_MODEL` を `/models/ggml-base.bin` などに変更可。`STT_THREADS` で CPU/GPU のスレッド数を調整。
+- ビルド: `docker compose build stt`（aarch64 + CUDA 13.0）。
 
-  git submodule update --init
+### 3. TTS (Fish Speech / Open Audio S1 mini)
+- モデル配置:
+```bash
+mkdir -p ./models/tts
+git lfs install
+git clone https://huggingface.co/fishaudio/open_audio_s1 ./models/tts/openaudio-s1-mini
+```
+- `./references/tts` に話者リファレンス音声を置くと `TTS_REFERENCE_DIR` 経由で参照できる。
+- GPU 利用時は `.env` で `TTS_BACKEND=cuda`（CPU で試す場合は `cpu`）。ビルド: `docker compose build tts`。
 
-  runtime_compute_cap=120
-  docker build . -f Dockerfile-cuda-blackwell \
-    --build-arg CUDA_COMPUTE_CAP=$runtime_compute_cap \
-    --platform=linux/arm64 \
-    -t tei-cuda-arm64:$runtime_compute_cap
-  ```
-  単体起動例（HF モデルキャッシュは `/data` を利用）:
-  ```bash
-  docker run --rm --gpus all \
-    -p 8080:80 \
-    -v "$volume":/data \
-    tei-cuda-arm64:${runtime_compute_cap} \
-    --model-id "$model" \
-    --auto-truncate
-  ```
-  compose 側では `EMBEDDING_IMAGE=tei-cuda-arm64:120`、`EMBEDDING_MODEL_LOCAL_DIR=./models/embedding` を前提に `/data` をキャッシュとしてマウントする。モデルを事前配置する場合は `/data` 配下に保存しておく。
-
-### CUDA ビルドの指定（Fish Speech: cu128 / sherpa-onnx: cu128）
-- TTS (Fish Speech/OpenVoice, cu128): `docker/tts-fish-speech/Dockerfile` をベースに NGC の PyTorch ARM64 イメージからビルド。`.env` の `TTS_IMAGE=local/openvoice:cuda` のまま `docker compose build tts` を実行（ARM64 はそのまま、x86_64 でビルドする場合は `TTS_PLATFORM=linux/amd64` を指定）。
-- STT (sherpa-onnx, cu128): `.env` で `STT_BACKEND=cuda`、`STT_CUDA_VERSION=12.8.0` をセットし、`docker compose build stt` で CUDA 版をビルド。compose に `runtime: nvidia` が指定されているため、GPU ホストで実行すること。`STT_PROVIDER_RUNTIME=cuda` を合わせて設定すると onnxruntime GPU を利用可能。
-
-#### ARM ホストで CUDA イメージをビルドする場合
-- 事前に qemu/binfmt を登録し、buildx を有効化する（例）:
-  ```bash
-  docker run --privileged --rm tonistiigi/binfmt --install amd64
-  docker buildx create --name multi --use
-  ```
-- その上で `docker compose build tts stt` を実行。登録がないと `exec format error` で失敗する。
-- qemu が使えない環境では、`*_BACKEND=cpu` と `*_PLATFORM=linux/arm64` に切り替えて CPU ビルドを行う。
-- aarch64 + CUDA の wheel を自前で用意する場合は `tools/wheels/README.md` を参照し、cibuildwheel で torch 2.8.0+cu128 / sherpa-onnx 1.12.18 の wheel を `wheels/` 配下に配置してから Docker ビルドで参照する。TTS は NGC PyTorch ベースの `docker/tts-fish-speech/Dockerfile` を推奨（cu128 aarch64 wheel を公式 index から取得するため）。
-
-## プロバイダセットアップ例
-1. LLM (gpt-oss-120b, vLLM)
-   ```bash
-   # モデル取得例（事前に git-lfs / HF token を準備）
-   mkdir -p ./models/llm
-   huggingface-cli download gpt-oss/gpt-oss-120b \
-     --local-dir ./models/llm/gpt-oss-120b \
-     --local-dir-use-symlinks False
-   # 必要に応じて LLM_MODEL_PATH=/models/gpt-oss-120b を調整
-   ```
-2. STT (sherpa-onnx)
-   ```bash
-   mkdir -p ./models/stt
-   # sherpa-onnx の公開モデルを取得（例: streaming zipformer）
-   # （例）https://github.com/k2-fsa/sherpa-onnx/releases から ja 系の streaming zipformer を選択
-   wget -O ./models/stt/model.tar.gz https://github.com/k2-fsa/sherpa-onnx/releases/download/<tag>/<streaming-zipformer-ja-asset>.tar.gz
-   tar -xf ./models/stt/model.tar.gz -C ./models/stt --strip-components=1
-   # コマンドを必要に応じて上書き（.env の STT_COMMAND もしくは docker compose で指定）
-   # デフォルト: python3 -m sherpa_onnx.python_api.offline_websocket_server --port 6006 --tokens .../tokens.txt --encoder-onnx .../encoder.onnx ...
-   ```
-3. TTS (Open Audio S1)
-   ```bash
-   mkdir -p ./models/tts
-   git clone https://huggingface.co/fishaudio/open_audio_s1 ./models/tts/open_audio_s1
-   # .env の TTS_MODEL_DIR=/models/tts を維持しつつ、必要なら TTS_COMMAND を上書き
-   ```
-4. Embedding (text-embeddings-inference)
-   - 既定で `intfloat/multilingual-e5-base` を使用。大型モデルに入れ替える場合は `EMBEDDING_MODEL` と `EMBEDDING_IMAGE` を変更し、HF トークンを付与。
+### 4. Embedding (llama.cpp, GGUF)
+- 推奨: `nomic-embed-text-v1.5` などの GGUF を配置:
+```bash
+mkdir -p ./models/embedding
+wget -O ./models/embedding/embd-model.gguf \
+  https://huggingface.co/bartowski/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf
+```
+- `EMBEDDING_MODEL` でファイル名を指定。ビルド: `docker compose build embedding`。
 
 ## 起動・切り替え
-- 本番: `docker compose up -d`（GPU 要求あり。モデルが未配置の場合は起動に失敗するため上記で準備）。
-- モック: `docker compose --profile mock up -d`（実プロバイダを停止したい場合は `docker compose stop llm stt tts embedding`）。
-- 開発（ホットリロード）は従来通り `docker-compose.dev.yml` + `COMPOSE_PROFILES=dev` を利用。
+- 本番相当: `docker compose up -d`（モデルが未配置だと llm/stt/tts/embedding が起動失敗する）。
+- モック: `docker compose --profile mock up -d`（llm/stt/tts/embedding を echo サーバに置き換えて疎通確認）。
+- 開発ホットリロード: `docker compose -f docker-compose.dev.yml --profile dev up` を従来通り使用。
+- GPU/プラットフォームを変える場合は `.env` の `*_PLATFORM` と `*_BACKEND` を合わせて更新。
 
 ## RAG/Embedding ジョブ
-- ingest ジョブ: `docker compose run --rm backend python -m app.cli.ingest --source docs --providers config/providers.yaml --index ${RAG_INDEX_PATH:-/data/faiss/index.bin}`
-  - `/data` がホストにマウントされるため、生成された FAISS インデックスは `data/faiss/` に残る。
-  - `EMBEDDING_ENDPOINT`/`RAG_INDEX_PATH` は `.env` の値をそのまま利用。
+- ingest 例（`.env` の embedding/RAG 設定を利用）:
+```bash
+docker compose run --rm backend \
+  sh -c "cd /workspace/backend && python -m app.cli.ingest --source /workspace/docs --index ${RAG_INDEX_PATH:-/data/faiss/index.bin}"
+```
+- `/data` がホストにマウントされるため、生成されたインデックスは `data/faiss/` に残る。
 
-## ヘルスチェック / フォールバック検知 / レイテンシ
-- `GET /health`: `providers` に各プロバイダの `provider/endpoint/is_mock/fallback_count` を返却。モック利用やフォールバック発生時は `warnings` に追記。
-- `GET /ready`: DB/RAG ロードの状態に加えて上記 `warnings` を表示し、検知時は `status=degraded`。
-  ```bash
-  curl -s http://localhost:${BACKEND_PORT:-8000}/ready | jq
-  ```
-- レイテンシ計測: `docs/01_project/tasks/status/in_progress.md` の観点に合わせ、実プロバイダ接続で `partial/final/tts_start` の p95 を 10〜20 サンプル計測。計測ログは request-id 付きで保存し、数値をタスク欄に転記。
+## ヘルスチェック / フォールバック / レイテンシ
+- `GET /health` / `GET /ready` は providers の `provider/endpoint/is_mock/fallback_count` を返却（モック利用やフォールバック発生時は `warnings` に追記）。
+- LLM/NIM のヘルスは `http://localhost:18000/v1/health/ready`、whisper.cpp は `http://localhost:${STT_PORT}/health` を確認。
+- レイテンシ計測は `docs/01_project/tasks/status/in_progress.md` の観点に沿って、partial/final/tts_start の p95 を 10〜20 サンプル採取し、request-id とともに記録。
 
-## 運用ノート（GPU/ログ/ロールバック）
-- GPU 目安: gpt-oss-120b は 6〜8 GPU (H100 クラス) を想定。`LLM_GPU_COUNT`/`LLM_TP_SIZE` で割り当てを調整し、STT/TTS は 1 GPU ずつで十分なことが多い。
-- ログ/監視: backend は JSON ログ + `request_id` を出力。`/health`/`/ready` の `warnings` と `fallback_count` をプローブしてフォールバック発生を検知し、必要に応じてメトリクス収集へ転送する。
-- モデル更新/ロールバック: モデルディレクトリを差し替えたうえで対象サービスを再起動 (`docker compose restart llm` など)。旧ディレクトリを残しておけば環境変数を戻すだけでロールバック可能。
+## 運用ノート
+- GPU 要求は llm/stt/tts/embedding で 1 枚ずつ。LLM は SM 12.1 対応の aarch64 NIM イメージで、ドライバは CUDA 13.0 以上を想定。
+- モデルの切り替えは `.env` と `./models` の差し替えで完結。ロールバックは旧ディレクトリを残して再起動するだけで可能。
+- ログは backend/各プロバイダが JSON で出力。`/health` `/ready` の `warnings` をプローブするとフォールバック発生を検知しやすい。

@@ -3,10 +3,11 @@
 * 対象HW: DGX Spark 1台（複数GPU想定）
 * 主な技術スタック
 
-  * LLM: gpt-oss-120b
+  * LLM: Qwen2.5/Qwen3 32B (NIM, aarch64, cu130/SM 12.1)
   * RAG: LangChain + FAISS
-  * STT: sherpa-onnx (+ reazon speech)
-  * TTS: Open Audio S1 (Fish Audio)
+  * STT: whisper.cpp (CUDA 対応ビルド、ggml/GGUF モデル)
+  * TTS: Open Audio S1 (Fish Speech / OpenVoice, CUDA 13.0)
+  * Embedding: llama.cpp (CUDA 対応埋め込みサーバ, GGUF)
   * Backend: FastAPI
   * Frontend: Vite + React + TypeScript + three-vrm（react-three-fiber 経由）+ shadcn/ui
   * コンテナオーケストレーション: Docker Compose（一発起動）
@@ -92,9 +93,9 @@
 
 3. **LLM Service**
 
-   * gpt-oss-120b をホスト（例: vLLM / DeepSpeed-Inference 等の実装は任意）
-   * HTTP / gRPC ベースの Chat Completion API を提供
-   * 将来的に別LLMサーバ（例: クラウドAPI）に置き換え可能な形
+   * NIM コンテナで Qwen 32B Instruct（aarch64, cu130, SM 12.1）をホスト
+   * OpenAI 互換の Chat Completion API を HTTP で提供（`http://llm:8000/v1`）
+   * 別 LLM サーバ（クラウド API 含む）に差し替え可能な形を維持
 
 4. **RAG / Vector Store**
 
@@ -102,15 +103,15 @@
    * Vector DB は FAISS を採用（ローカルファイル + ボリューム）
    * Embedding モデルは抽象化（差し替え可）
 
-5. **STT Service (sherpa-onnx + reazon speech)**
+5. **STT Service (whisper.cpp)**
 
-   * ストリーミング音声認識
-   * reazon speech による VAD / セグメンテーション（構成に応じて）
+   * whisper.cpp を CUDA 13.0 でビルドし、`whisper-server` でストリーミング音声認識
+   * ggml/GGUF モデルをマウント（例: `ggml-base.en.bin` / `ggml-base.bin`）
 
 6. **TTS Service (Open Audio S1)**
 
-   * テキストから音声をストリーミング生成
-   * 複数 voice / style の切り替え（設定から制御）
+   * Fish Speech/OpenVoice ベースで Open Audio S1 mini をストリーミング生成
+   * CUDA 13.0（または CPU）で動作し、voice/style を設定で切り替え
 
 7. **共通インフラ**
 
@@ -292,14 +293,14 @@ class SttProvider(Protocol):
 
 実装例:
 
-* `SherpaOnnxProvider`
+* `WhisperCppProvider`
 
-  * sherpa-onnx サーバの gRPC / WebSocket をラップ
-  * reazon speech ベースの VAD で区切りを検出
+  * whisper.cpp の HTTP/WebSocket サーバ (`whisper-server`) を叩く実装
+  * CUDA 13.0 ビルドの ggml/GGUF モデル（例: `ggml-base.en.bin`）を使用
 
 将来:
 
-* `WhisperProvider` などに差し替え可能
+* sherpa-onnx など別エンジンにも差し替え可能
 
 標準ではクライアントから Opus 32kbps チャンクを受け取り、サーバー側で 16k〜48kHz PCM にデコードして STT に渡す。
 
@@ -337,19 +338,25 @@ class TtsProvider(Protocol):
 
 ```yaml
 llm:
-  provider: "local-gpt-oss-120b"
+  provider: "nim-qwen3"
   endpoint: "http://llm:8000/v1"
-  model: "gpt-oss-120b"
+  model: "qwen3-32b-instruct"
 
 stt:
-  provider: "sherpa-onnx"
-  endpoint: "http://stt:6006"
-  model: "reazonspeech-k2-asr"
+  provider: "whisper-cpp"
+  endpoint: "http://stt:6006/inference"
+  language: "ja"
 
 tts:
   provider: "open-audio-s1"
   endpoint: "http://tts:7007"
   default_voice: "ja_female_1"
+  stream: true
+
+embedding:
+  provider: "local-embedding"
+  endpoint: "http://embedding:9000/v1"
+  model: "/models/embd-model.gguf"
 
 rag:
   provider: "faiss"
@@ -475,7 +482,7 @@ FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider �
 
 ### 7.1 インデクシングパイプライン
 
-* `rag-indexer` コンテナを別途用意し、ジョブとして実行
+* backend コンテナ（もしくは専用ジョブ）で ingest CLI を実行し、必要に応じて `rag-indexer` として切り出す
 
   * 対象: PDF / Markdown / Webページ / 社内wiki 等
   * LangChain の Document Loader / TextSplitter で分割（チャンク 800〜1200 文字、オーバーラップ 200 文字目安）
@@ -519,117 +526,241 @@ FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider �
 
 ### 8.1 コンテナ一覧
 
-* `frontend` : Vite + React ビルド済み静的ファイル + Node/Nginx
-* `backend` : FastAPI Orchestrator
-* `llm` : gpt-oss-120b 推論サーバ
-* `stt` : sherpa-onnx + reazon speech
-* `tts` : Open Audio S1 TTS サービス
-* `rag-indexer` : RAG インデクシングジョブ（必要時のみ実行）
-* `db` : PostgreSQL
-* `redis` : (オプション) セッション管理・キュー
-* 共通ネットワーク: `backend-net`
+- `frontend` : Node 20 上で Vite ビルド + preview（pnpm をコンテナ内で実行）
+- `backend` : FastAPI Orchestrator（python:3.12-slim）
+- `llm` : NIM Qwen 32B Instruct（nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest, aarch64, cu130/SM 12.1）
+- `stt` : whisper.cpp CUDA ビルド (`whisper-server`)、ggml/GGUF モデルを `/models` にマウント
+- `tts` : Fish Speech / OpenVoice (Open Audio S1 mini) CUDA 13.0 サーバ
+- `embedding` : llama.cpp embedding サーバ（GGUF, CUDA 13.0）
+- `postgres` : PostgreSQL 16
+- `mock providers` : echo-server（llm/stt/tts/embedding のエイリアス、`profile=mock`）
 
-### 8.2 GPU 割り当て方針（例）
+### 8.2 GPU / プラットフォーム方針
 
-* `llm` : DGX Spark の大部分の GPU を占有（例: 6〜8枚）
-* `stt` : 1 GPU
-* `tts` : 1 GPU
-* `backend` / `frontend` / `db` / `redis` : CPU
+- DGX Spark (aarch64, CUDA 13.0, SM 12.1) を前提に、`deploy.resources.reservations.devices` で GPU を各サービス 1 枚ずつ確保（llm/stt/tts/embedding）。
+- STT/TTS/Embedding のビルドベースは `nvidia/cuda:13.0.2-devel-ubuntu24.04`。LLM は `platform=linux/aarch64` の NIM イメージを使用。
+- LLM のモデルキャッシュは `/opt/nim/workspace` を `./models/llm` にバインド。`NGC_API_KEY` を `.env` に設定し、NIM がモデルを自動取得する前提。
+- STT/TTS/Embedding は `./models/{stt,tts,embedding}` を `/models` / `/app/checkpoints` にマウントし、GGUF/音声モデル/リファレンス音声を事前配置する。
 
-※ 実際には DGX Spark の GPU 数やメモリに応じて最適化する。
-
-### 8.3 docker-compose.yml（サンプル）
-
-※ 実際の GPU 設定は環境に合わせて調整が必要。ここでは概念的な例。
+### 8.3 docker-compose.yml（現行の要点）
 
 ```yaml
-version: "3.9"
+name: fullstack-vrm-assistant
+
+x-common-env: &common-env
+  env_file:
+    - .env
+
+x-nvidia: &nvidia
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
 
 services:
-  frontend:
-    image: myorg/ai-secretary-frontend:latest
-    ports:
-      - "8080:80"
-    depends_on:
-      - backend
-    networks:
-      - backend-net
-
   backend:
-    image: myorg/ai-secretary-backend:latest
-    environment:
-      - PROVIDER_CONFIG=/config/providers.yaml
+    image: python:3.12-slim
+    working_dir: /workspace/backend
+    command: |
+      sh -c "
+        cd /workspace/backend &&
+        apt-get update &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg build-essential curl &&
+        rm -rf /var/lib/apt/lists/* &&
+        python -m pip install --no-cache-dir --upgrade pip setuptools wheel &&
+        if [ -f requirements.dev.txt ]; then
+          PIP_NO_BUILD_ISOLATION=1 pip install --no-cache-dir -r requirements.dev.txt;
+        else
+          echo 'requirements.dev.txt が見つかりません。';
+        fi &&
+        uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000}
+      "
     volumes:
-      - ./config:/config:ro
-      - faiss-data:/data/faiss
-    depends_on:
-      - llm
-      - stt
-      - tts
-      - db
+      - ./backend:/workspace/backend
+      - ./config:/workspace/config:ro
+      - ./data:/data
+    <<: *common-env
+    environment:
+      - PROVIDERS_CONFIG_PATH=${PROVIDERS_CONFIG_PATH:-/workspace/config/providers.yaml}
+      - PYTHONPATH=/workspace/backend
     ports:
-      - "8000:8000"
-    networks:
-      - backend-net
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${BACKEND_PORT:-8000}/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  frontend:
+    image: node:20-bullseye
+    working_dir: /workspace/frontend
+    command: |
+      sh -c "
+        cd /workspace/frontend &&
+        corepack enable &&
+        pnpm install --frozen-lockfile=false &&
+        pnpm build &&
+        pnpm preview -- --host --port ${FRONTEND_PORT:-5173}
+      "
+    volumes:
+      - ./frontend:/workspace/frontend
+      - frontend_node_modules:/workspace/frontend/node_modules
+    <<: *common-env
+    ports:
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
+    depends_on:
+      backend:
+        condition: service_started
 
   llm:
-    image: myorg/gpt-oss-120b-server:latest
-    runtime: nvidia
-    device_requests:
-      - driver: nvidia
-        count: 6
-        capabilities: ["gpu"]
-    networks:
-      - backend-net
+    image: ${LLM_IMAGE:-nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest}
+    platform: ${LLM_PLATFORM:-linux/aarch64}
+    <<: *nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NGC_API_KEY=${NGC_API_KEY}
+    volumes:
+      - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/opt/nim/workspace}
+    ports:
+      - "${LLM_LOCAL_PORT:-18000}:${LLM_PORT:-8000}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:18000/v1/health/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   stt:
-    image: myorg/sherpa-onnx-server:latest
-    runtime: nvidia
-    device_requests:
-      - driver: nvidia
-        count: 1
-        capabilities: ["gpu"]
-    networks:
-      - backend-net
+    image: ${STT_IMAGE:-local/whisper-stt:cuda}
+    build:
+      context: .
+      dockerfile: docker/stt-whisper/Dockerfile
+    <<: *nvidia
+    volumes:
+      - ${STT_MODEL_LOCAL_DIR:-./models/stt}:${STT_MODEL_DIR:-/models}
+    environment:
+      - WHISPER_MODEL=${STT_MODEL:-/models/ggml-base.en.bin}
+      - WHISPER_PORT=${STT_PORT:-6006}
+      - WHISPER_LANG=${STT_LANGUAGE:-ja}
+      - WHISPER_THREADS=${STT_THREADS:-16}
+    ports:
+      - "${STT_PORT:-6006}:${STT_PORT:-6006}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${STT_PORT:-6006}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   tts:
-    image: myorg/open-audio-s1-server:latest
-    runtime: nvidia
-    device_requests:
-      - driver: nvidia
-        count: 1
-        capabilities: ["gpu"]
-    networks:
-      - backend-net
-
-  db:
-    image: postgres:16
-    environment:
-      - POSTGRES_USER=assistant
-      - POSTGRES_PASSWORD=assistant
-      - POSTGRES_DB=assistant
+    image: ${TTS_IMAGE:-local/openvoice:cuda}
+    build:
+      context: .
+      dockerfile: docker/tts-fish-speech/Dockerfile
+    <<: *nvidia
     volumes:
-      - db-data:/var/lib/postgresql/data
-    networks:
-      - backend-net
+      - ${TTS_MODEL_LOCAL_DIR:-./models/tts}:${TTS_MODEL_DIR:-/app/checkpoints}
+      - ${TTS_REFERENCE_LOCAL_DIR:-./references/tts}:${TTS_REFERENCE_DIR:-/app/references}
+    environment:
+      - API_SERVER_PORT=${TTS_PORT:-7007}
+      - BACKEND=${TTS_BACKEND:-cuda}
+    command: bash -lc "${TTS_COMMAND:-/app/start_server.sh}"
+    ports:
+      - "${TTS_PORT:-7007}:${TTS_PORT:-7007}"
 
-  redis:
-    image: redis:7
+  embedding:
+    image: ${EMBEDDING_IMAGE:-local/llama-embedding:cuda}
+    build:
+      context: .
+      dockerfile: docker/embedding-llama/Dockerfile
+    <<: *nvidia
+    environment:
+      - LLAMA_MODEL=${EMBEDDING_MODEL:-/models/embd-model.gguf}
+      - LLAMA_PORT=${EMBEDDING_PORT:-9000}
+      - LLAMA_PARALLEL=${EMBEDDING_PARALLEL:-4}
+      - LLAMA_UBATCH=${EMBEDDING_UBATCH:-1024}
+      - LLAMA_NGPU=${EMBEDDING_NGPU:-999}
+      - LLAMA_POOLING=${EMBEDDING_POOLING:-mean}
+    ports:
+      - "${EMBEDDING_PORT:-9000}:${EMBEDDING_PORT:-9000}"
+    volumes:
+      - ${EMBEDDING_MODEL_LOCAL_DIR:-./models/embedding}:${EMBEDDING_MODEL_DIR:-/models}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${EMBEDDING_PORT:-9000}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-vrm}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-vrm_password}
+      - POSTGRES_DB=${POSTGRES_DB:-vrm}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vrm}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  llm-mock:
+    image: docker.io/ealen/echo-server:latest
+    profiles: [mock]
+    environment:
+      - PORT=${LLM_PORT:-8000}
     networks:
-      - backend-net
+      default:
+        aliases: [llm]
+    ports:
+      - "${LLM_PORT:-8000}:${LLM_PORT:-8000}"
+
+  stt-mock:
+    image: docker.io/ealen/echo-server:latest
+    profiles: [mock]
+    environment:
+      - PORT=${STT_PORT:-6006}
+    networks:
+      default:
+        aliases: [stt]
+    ports:
+      - "${STT_PORT:-6006}:${STT_PORT:-6006}"
+
+  tts-mock:
+    image: docker.io/ealen/echo-server:latest
+    profiles: [mock]
+    environment:
+      - PORT=${TTS_PORT:-7007}
+    networks:
+      default:
+        aliases: [tts]
+    ports:
+      - "${TTS_PORT:-7007}:${TTS_PORT:-7007}"
+
+  embedding-mock:
+    image: docker.io/ealen/echo-server:latest
+    profiles: [mock]
+    environment:
+      - PORT=${EMBEDDING_PORT:-9000}
+    networks:
+      default:
+        aliases: [embedding]
+    ports:
+      - "${EMBEDDING_PORT:-9000}:${EMBEDDING_PORT:-9000}"
 
 volumes:
-  db-data:
-  faiss-data:
-
-networks:
-  backend-net:
+  frontend_node_modules:
+  postgres_data:
 ```
 
-> **一発起動要件**
-> この compose ファイル＋事前ビルドされた各イメージを用意すれば、
-> `docker compose up -d` で全サービスが立ち上がる構成を目指す。
-> モデルファイルは各コンテナのボリュームに配置し、起動ヘルスチェックを入れて依存順を担保する。
+> モデルを `./models` 配下に配置し、`.env` のパラメータ（NGC_API_KEY, *_MODEL, *_PORT, *_PLATFORM など）を埋めたうえで `docker compose up -d`。モックでの疎通確認は `docker compose --profile mock up -d` を利用する。
 
 ---
 
@@ -669,7 +800,7 @@ networks:
    * FastAPI + LangChain + FAISS のみ
 2. **Phase 2: 音声入出力・3D UI**
 
-   * STT（sherpa-onnx）& TTS（Open Audio S1）を追加
+   * STT（whisper.cpp CUDA）& TTS（Open Audio S1 / Fish Speech）を追加
    * WebSocket で音声ストリーミング
    * three-vrm で簡易アバター & 口パク
 3. **Phase 3: モジュール化・差し替え**
