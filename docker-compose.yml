@@ -9,7 +9,9 @@ x-nvidia: &nvidia
     resources:
       reservations:
         devices:
-          - capabilities:
+          - driver: nvidia
+            count: 1
+            capabilities:
               - gpu
 
 services:
@@ -123,37 +125,24 @@ services:
       retries: 5
 
   stt:
-    image: ${STT_IMAGE:-local/sherpa-onnx:cuda}
+    image: ${STT_IMAGE:-local/whisper-stt:cuda}
     build:
       context: .
-      dockerfile: ${STT_DOCKERFILE:-docker/stt-sherpa/Dockerfile}
-      args:
-        BACKEND: ${STT_BACKEND:-cuda}
-        CUDA_VER: ${STT_CUDA_VERSION:-12.8.0}
-    platform: ${STT_PLATFORM:-linux/aarch64}
+      dockerfile: docker/stt-whisper/Dockerfile
     container_name: vrm-stt
     restart: unless-stopped
     <<: *nvidia
     volumes:
-      - ${STT_MODEL_LOCAL_DIR:-./models/stt}:${STT_MODEL_DIR:-/models}:ro
+      - ${STT_MODEL_LOCAL_DIR:-./models/stt}:${STT_MODEL_DIR:-/models}
     environment:
-      - STT_COMMAND=${STT_COMMAND:-sherpa-onnx-offline-websocket-server --port=${STT_PORT:-6006} --tokens=${STT_TOKENS:-/models/tokens.txt} --encoder=${STT_ENCODER:-/models/encoder.onnx} --decoder=${STT_DECODER:-/models/decoder.onnx} --joiner=${STT_JOINER:-/models/joiner.onnx} --provider=${STT_PROVIDER_RUNTIME:-cpu} --num-threads=${STT_NUM_THREADS:-4} --max-batch-size=${STT_MAX_BATCH_SIZE:-8}}
-      - LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-/usr/local/lib/python3.12/dist-packages/sherpa_onnx/lib}
+      - WHISPER_MODEL=${STT_MODEL:-/models/ggml-base.en.bin}
+      - WHISPER_PORT=${STT_PORT:-6006}
+      - WHISPER_LANG=${STT_LANG:-ja}
+      - WHISPER_THREADS=${STT_THREADS:-16}
     ports:
       - "${STT_PORT:-6006}:${STT_PORT:-6006}"
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >
-          python3 - <<'PY'
-          import socket, sys
-          port = int("${STT_PORT:-6006}")
-          try:
-              with socket.create_connection(("localhost", port), timeout=5):
-                  sys.exit(0)
-          except Exception:
-              sys.exit(1)
-          PY
+      test: ["CMD-SHELL", "curl -f http://localhost:${STT_PORT:-6006}/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -177,45 +166,26 @@ services:
       bash -lc "${TTS_COMMAND:-/app/start_server.sh}"
     ports:
       - "${TTS_PORT:-7007}:${TTS_PORT:-7007}"
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - >
-          python3 - <<'PY'
-          import http.client, sys
-          port = int("${TTS_PORT:-7007}")
-          try:
-              conn = http.client.HTTPConnection("localhost", port, timeout=5)
-              conn.request("GET", "/v1/health")
-              resp = conn.getresponse()
-              sys.exit(0 if resp.status < 500 else 1)
-          except Exception:
-              sys.exit(1)
-          PY
-      interval: 30s
-      timeout: 10s
-      retries: 5
 
   embedding:
-    image: ${EMBEDDING_IMAGE:-tei-cuda-arm64:121}
-    platform: ${EMBEDDING_PLATFORM:-linux/aarch64}
+    image: ${EMBEDDING_IMAGE:-local/llama-embedding:cuda}
+    build:
+      context: .
+      dockerfile: docker/embedding-llama/Dockerfile
     container_name: vrm-embedding
     restart: unless-stopped
     <<: *nvidia
     environment:
-      - MODEL_ID=${EMBEDDING_MODEL:-intfloat/multilingual-e5-base}
-      - MAX_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-16}
-      - HUGGING_FACE_HUB_TOKEN=${HUGGINGFACEHUB_API_TOKEN:-}
-      - PORT=${EMBEDDING_PORT:-9000}
-      - HF_HOME=${EMBEDDING_MODEL_DIR:-/data}
-    command: >-
-      --model-id ${EMBEDDING_MODEL:-intfloat/multilingual-e5-base}
-      --port ${EMBEDDING_PORT:-9000}
-      --auto-truncate
+      - LLAMA_MODEL=${EMBEDDING_MODEL:-/models/embd-model.gguf}
+      - LLAMA_PORT=${EMBEDDING_PORT:-9000}
+      - LLAMA_PARALLEL=${EMBEDDING_PARALLEL:-4}
+      - LLAMA_UBATCH=${EMBEDDING_UBATCH:-1024}
+      - LLAMA_NGPU=${EMBEDDING_NGPU:-999}
+      - LLAMA_POOLING=${EMBEDDING_POOLING:-mean}
     ports:
       - "${EMBEDDING_PORT:-9000}:${EMBEDDING_PORT:-9000}"
     volumes:
-      - ${EMBEDDING_MODEL_LOCAL_DIR:-./models/embedding}:${EMBEDDING_MODEL_DIR:-/data}
+      - ${EMBEDDING_MODEL_LOCAL_DIR:-./models/embedding}:${EMBEDDING_MODEL_DIR:-/models}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:${EMBEDDING_PORT:-9000}/health || exit 1"]
       interval: 30s
