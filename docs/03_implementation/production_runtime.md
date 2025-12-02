@@ -10,7 +10,7 @@
 - **LLM**: `LLM_IMAGE` (デフォルト: `nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest`), `LLM_PLATFORM=linux/aarch64`, `LLM_LOCAL_PORT`/`LLM_PORT`, `LLM_MODEL_DIR=/opt/nim/workspace`, `LLM_MODEL=qwen3-32b-instruct`, `LLM_ENDPOINT=http://llm:8000/v1`, `NGC_API_KEY`。
 - **STT**: `STT_IMAGE=local/whisper-stt:cuda`, `STT_MODEL_LOCAL_DIR`, `STT_MODEL=/models/ggml-base.en.bin`（日本語モデルに差し替え可）、`STT_LANGUAGE=ja`, `STT_THREADS`, `STT_ENDPOINT=http://stt:6006/inference`。
 - **TTS**: `TTS_IMAGE=local/openvoice:cuda`, `TTS_MODEL_LOCAL_DIR`, `TTS_REFERENCE_LOCAL_DIR`, `TTS_BACKEND`（cuda/cpu）, `TTS_PORT`, `TTS_DEFAULT_VOICE`, `TTS_OUTPUT_FORMAT=opus`, `TTS_SAMPLE_RATE=44100`。
-- **Embedding**: `EMBEDDING_IMAGE=local/llama-embedding:cuda`, `EMBEDDING_MODEL=/models/embd-model.gguf`, `EMBEDDING_PORT=9000`, `EMBEDDING_PARALLEL/EMBEDDING_UBATCH/EMBEDDING_NGPU/EMBEDDING_POOLING`。
+- **Embedding**: `EMBEDDING_IMAGE=local/llama-embedding:cuda`, `EMBEDDING_ENDPOINT=http://embedding:9000/embedding`（llama.cpp `llama-server --embeddings` の REST パス）、`EMBEDDING_MODEL=/models/embd-model.gguf`, `EMBEDDING_PORT=9000`, `EMBEDDING_PARALLEL/EMBEDDING_UBATCH/EMBEDDING_NGPU/EMBEDDING_POOLING`。
 - **RAG**: `RAG_INDEX_PATH=/data/faiss/index.bin`, `RAG_TOP_K`, `RAG_EMBEDDING_PROVIDER`。
 
 ## モデル/イメージの準備

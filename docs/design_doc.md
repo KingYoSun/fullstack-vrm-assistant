@@ -355,7 +355,7 @@ tts:
 
 embedding:
   provider: "local-embedding"
-  endpoint: "http://embedding:9000/v1"
+  endpoint: "http://embedding:9000/embedding"
   model: "/models/embd-model.gguf"
 
 rag:
