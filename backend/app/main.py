@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, Request
 from sqlalchemy import text
 
 from app.api import dependencies
-from app.api.routes import text_chat, websocket
+from app.api.routes import diagnostics, text_chat, websocket
 from app.core.logging import configure_logging, generate_request_id, reset_request_id, set_request_id
 from app.core.container import AppContainer
 from app.core.providers import load_providers_config
@@ -70,6 +70,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(text_chat.router, prefix="/api/v1")
+app.include_router(diagnostics.router, prefix="/api/v1")
 app.include_router(websocket.router)
 
 

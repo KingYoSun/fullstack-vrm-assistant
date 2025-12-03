@@ -19,6 +19,52 @@ type ChatTurn = {
 
 type LatencyMap = { stt?: number; llm?: number; tts?: number }
 
+type SttDiagResult = {
+  text: string
+  byteLength: number
+  provider: string
+  endpoint: string
+  fallbackUsed: boolean
+}
+
+type LlmDiagResult = {
+  assistantText: string
+  tokens: string[]
+  latencyMs: number
+  provider: string
+  endpoint: string
+  fallbackUsed: boolean
+}
+
+type TtsDiagMeta = {
+  mimeType: string
+  byteLength: number
+  chunkCount: number
+  latencyMs: number
+  provider: string
+  endpoint: string
+  sampleRate: number
+  fallbackUsed: boolean
+}
+
+type EmbeddingDiagResult = {
+  vector: number[]
+  dimensions: number
+  provider: string
+  endpoint: string
+  fallbackUsed: boolean
+}
+
+type RagDiagResult = {
+  query: string
+  documents: { source: string; content: string }[]
+  contextText: string
+  ragIndexLoaded: boolean
+  topK: number
+}
+
+type DbDiagResult = { status: string; detail?: string | null; conversationLogCount?: number | null }
+
 type LegacyGetUserMedia = (
   constraints: MediaStreamConstraints,
   successCallback: (stream: MediaStream) => void,
@@ -33,10 +79,11 @@ type NavigatorWithLegacyGetUserMedia = Navigator & {
 
 const DEFAULT_VRM = '/AliciaSolid.vrm'
 const DEFAULT_WS_PATH = '/ws/session'
+const DEFAULT_API_BASE_PATH = '/api/v1'
 
-const normalizePath = (path: string) => {
-  if (!path) return DEFAULT_WS_PATH
-  const withLeadingSlash = path.startsWith('/') ? path : `/${path}`
+const normalizePath = (path: string, fallback = DEFAULT_WS_PATH) => {
+  const base = path || fallback
+  const withLeadingSlash = base.startsWith('/') ? base : `/${base}`
   return withLeadingSlash.endsWith('/') ? withLeadingSlash.slice(0, -1) : withLeadingSlash
 }
 
@@ -59,6 +106,24 @@ const resolveDefaultWsBaseUrl = () => {
 }
 
 const DEFAULT_WS_BASE_URL = resolveDefaultWsBaseUrl()
+const resolveDefaultApiBaseUrl = () => {
+  const explicitBase = import.meta.env.VITE_API_BASE_URL
+  if (explicitBase) return explicitBase.endsWith('/') ? explicitBase.slice(0, -1) : explicitBase
+
+  const host =
+    import.meta.env.VITE_BACKEND_HOST ||
+    (typeof window !== 'undefined' && window.location.hostname) ||
+    'localhost'
+  const envPort = import.meta.env.VITE_BACKEND_PORT
+  const port = envPort === '' ? '' : envPort ?? '8000'
+  const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https:' : 'http:'
+  const apiPath = normalizePath(import.meta.env.VITE_API_BASE_PATH ?? DEFAULT_API_BASE_PATH, DEFAULT_API_BASE_PATH)
+  const portPart = port ? `:${port}` : ''
+
+  return `${protocol}//${host}${portPart}${apiPath}`
+}
+
+const DEFAULT_API_BASE_URL = resolveDefaultApiBaseUrl()
 
 type CanvasErrorBoundaryProps = { resetKey?: string; onError?: (error: Error) => void; children: ReactNode }
 type CanvasErrorBoundaryState = { error: Error | null }
@@ -200,6 +265,7 @@ function ChatLog({ turns, partial }: ChatLogProps) {
 
 function App() {
   const [baseUrl, setBaseUrl] = useState(DEFAULT_WS_BASE_URL)
+  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL)
   const [sessionId, setSessionId] = useState('demo-session')
   const [vrmUrl, setVrmUrl] = useState(DEFAULT_VRM)
   const [state, setState] = useState<WsState>('disconnected')
@@ -212,6 +278,33 @@ function App() {
   const [avatarMouth, setAvatarMouth] = useState(0)
   const [avatarName, setAvatarName] = useState<string | null>(null)
   const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
+  const [sttFile, setSttFile] = useState<File | null>(null)
+  const [sttResult, setSttResult] = useState<SttDiagResult | null>(null)
+  const [sttError, setSttError] = useState<string | null>(null)
+  const [sttLoading, setSttLoading] = useState(false)
+  const [llmPrompt, setLlmPrompt] = useState('システムの状態を簡潔に教えて。')
+  const [llmContext, setLlmContext] = useState('')
+  const [llmResult, setLlmResult] = useState<LlmDiagResult | null>(null)
+  const [llmError, setLlmError] = useState<string | null>(null)
+  const [llmLoading, setLlmLoading] = useState(false)
+  const [ttsText, setTtsText] = useState('これは音声合成のテストです。音質とレスポンスを確認します。')
+  const [ttsVoice, setTtsVoice] = useState('')
+  const [ttsMeta, setTtsMeta] = useState<TtsDiagMeta | null>(null)
+  const [ttsAudioUrl, setTtsAudioUrl] = useState<string | null>(null)
+  const [ttsError, setTtsError] = useState<string | null>(null)
+  const [ttsLoading, setTtsLoading] = useState(false)
+  const [embeddingText, setEmbeddingText] = useState('3D アバターの対話体験を向上させるためのヒントを教えて')
+  const [embeddingResult, setEmbeddingResult] = useState<EmbeddingDiagResult | null>(null)
+  const [embeddingError, setEmbeddingError] = useState<string | null>(null)
+  const [embeddingLoading, setEmbeddingLoading] = useState(false)
+  const [ragQuery, setRagQuery] = useState('このプロジェクトの目的は？')
+  const [ragTopK, setRagTopK] = useState('4')
+  const [ragResult, setRagResult] = useState<RagDiagResult | null>(null)
+  const [ragError, setRagError] = useState<string | null>(null)
+  const [ragLoading, setRagLoading] = useState(false)
+  const [dbStatus, setDbStatus] = useState<DbDiagResult | null>(null)
+  const [dbError, setDbError] = useState<string | null>(null)
+  const [dbLoading, setDbLoading] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const ttsBuffersRef = useRef<Uint8Array[]>([])
@@ -232,10 +325,37 @@ function App() {
     )
   }, [])
 
+  const apiBase = useMemo(() => {
+    const base = (apiBaseUrl || DEFAULT_API_BASE_URL).trim()
+    const trimmed = base.endsWith('/') ? base.slice(0, -1) : base
+    return trimmed || DEFAULT_API_BASE_URL
+  }, [apiBaseUrl])
+
   const wsUrl = useMemo(() => {
     const normalized = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
     return `${normalized}/${sessionId}`
   }, [baseUrl, sessionId])
+
+  const buildApiUrl = (path: string) => {
+    const normalized = path.startsWith('/') ? path : `/${path}`
+    return `${apiBase}${normalized}`
+  }
+
+  const parseError = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+  const requestJson = async <T,>(path: string, init: RequestInit) => {
+    const response = await fetch(buildApiUrl(path), init)
+    const text = await response.text()
+    if (!response.ok) {
+      const message = text || `${response.status} ${response.statusText}`
+      throw new Error(message)
+    }
+    try {
+      return JSON.parse(text) as T
+    } catch {
+      throw new Error('invalid JSON response from backend')
+    }
+  }
 
   useEffect(() => {
     return () => {
@@ -255,6 +375,14 @@ function App() {
   useEffect(() => {
     setAvatarName(null)
   }, [vrmUrl])
+
+  useEffect(() => {
+    return () => {
+      if (ttsAudioUrl) {
+        URL.revokeObjectURL(ttsAudioUrl)
+      }
+    }
+  }, [ttsAudioUrl])
 
   const mouthOpen = useMemo(() => Math.min(1, Math.max(audioMouth, avatarMouth)), [audioMouth, avatarMouth])
   const latestTurn = chatTurns.at(-1)
@@ -579,6 +707,253 @@ function App() {
     appendLog('unknown message type')
   }
 
+  const audioFromBase64 = (base64: string, mimeType: string) => {
+    const binary = atob(base64)
+    const buffer = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) {
+      buffer[i] = binary.charCodeAt(i)
+    }
+    return new Blob([buffer], { type: mimeType })
+  }
+
+  const runSttCheck = async () => {
+    setSttError(null)
+    if (!sttFile) {
+      setSttError('音声ファイルを選択してください')
+      return
+    }
+    setSttLoading(true)
+    try {
+      const form = new FormData()
+      form.append('audio', sttFile)
+      const data = await requestJson<{
+        text: string
+        byte_length: number
+        provider: string
+        endpoint: string
+        fallback_used: boolean
+      }>('/diagnostics/stt', { method: 'POST', body: form })
+      setSttResult({
+        text: data.text,
+        byteLength: data.byte_length,
+        provider: data.provider,
+        endpoint: data.endpoint,
+        fallbackUsed: data.fallback_used,
+      })
+      appendLog(`diagnostics: stt ok (${data.byte_length} bytes)`)
+    } catch (err) {
+      const message = parseError(err)
+      setSttError(message)
+      appendLog(`diagnostics: stt failed (${message})`)
+    } finally {
+      setSttLoading(false)
+    }
+  }
+
+  const runLlmCheck = async () => {
+    setLlmError(null)
+    const prompt = llmPrompt.trim()
+    const context = llmContext.trim()
+    if (!prompt) {
+      setLlmError('プロンプトを入力してください')
+      return
+    }
+    setLlmLoading(true)
+    try {
+      const data = await requestJson<{
+        assistant_text: string
+        tokens: string[]
+        latency_ms: number
+        provider: string
+        endpoint: string
+        fallback_used: boolean
+      }>('/diagnostics/llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, context: context || undefined }),
+      })
+      setLlmResult({
+        assistantText: data.assistant_text,
+        tokens: data.tokens,
+        latencyMs: data.latency_ms,
+        provider: data.provider,
+        endpoint: data.endpoint,
+        fallbackUsed: data.fallback_used,
+      })
+      appendLog(`diagnostics: llm ok (${data.tokens.length} tokens)`)
+    } catch (err) {
+      const message = parseError(err)
+      setLlmError(message)
+      appendLog(`diagnostics: llm failed (${message})`)
+    } finally {
+      setLlmLoading(false)
+    }
+  }
+
+  const runTtsCheck = async () => {
+    setTtsError(null)
+    const text = ttsText.trim()
+    const voice = ttsVoice.trim()
+    if (!text) {
+      setTtsError('TTS テキストを入力してください')
+      return
+    }
+    setTtsLoading(true)
+    try {
+      const data = await requestJson<{
+        audio_base64: string
+        mime_type: string
+        byte_length: number
+        chunk_count: number
+        latency_ms: number
+        provider: string
+        endpoint: string
+        sample_rate: number
+        fallback_used: boolean
+      }>('/diagnostics/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: voice || undefined }),
+      })
+      const blob = audioFromBase64(data.audio_base64, data.mime_type)
+      const nextUrl = URL.createObjectURL(blob)
+      setTtsAudioUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return nextUrl
+      })
+      setTtsMeta({
+        mimeType: data.mime_type,
+        byteLength: data.byte_length,
+        chunkCount: data.chunk_count,
+        latencyMs: data.latency_ms,
+        provider: data.provider,
+        endpoint: data.endpoint,
+        sampleRate: data.sample_rate,
+        fallbackUsed: data.fallback_used,
+      })
+      appendLog(`diagnostics: tts ok (${data.byte_length} bytes)`)
+    } catch (err) {
+      const message = parseError(err)
+      setTtsError(message)
+      setTtsMeta(null)
+      setTtsAudioUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+      appendLog(`diagnostics: tts failed (${message})`)
+    } finally {
+      setTtsLoading(false)
+    }
+  }
+
+  const runEmbeddingCheck = async () => {
+    setEmbeddingError(null)
+    const text = embeddingText.trim()
+    if (!text) {
+      setEmbeddingError('テキストを入力してください')
+      return
+    }
+    setEmbeddingLoading(true)
+    try {
+      const data = await requestJson<{
+        vector: number[]
+        dimensions: number
+        provider: string
+        endpoint: string
+        fallback_used: boolean
+      }>('/diagnostics/embedding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      setEmbeddingResult({
+        vector: data.vector,
+        dimensions: data.dimensions,
+        provider: data.provider,
+        endpoint: data.endpoint,
+        fallbackUsed: data.fallback_used,
+      })
+      appendLog(`diagnostics: embedding ok (dim=${data.dimensions})`)
+    } catch (err) {
+      const message = parseError(err)
+      setEmbeddingError(message)
+      appendLog(`diagnostics: embedding failed (${message})`)
+    } finally {
+      setEmbeddingLoading(false)
+    }
+  }
+
+  const runRagCheck = async () => {
+    setRagError(null)
+    const query = ragQuery.trim()
+    const trimmedTopK = ragTopK.trim()
+    const topKNumber = trimmedTopK ? Number(trimmedTopK) : undefined
+    if (!query) {
+      setRagError('クエリを入力してください')
+      return
+    }
+    if (topKNumber !== undefined && (!Number.isFinite(topKNumber) || topKNumber <= 0)) {
+      setRagError('top_k は 1 以上の数値で入力してください')
+      return
+    }
+    setRagLoading(true)
+    try {
+      const payload: Record<string, string | number> = { query }
+      if (topKNumber !== undefined) {
+        payload.top_k = topKNumber
+      }
+      const data = await requestJson<{
+        query: string
+        documents: { source: string; content: string }[]
+        context_text: string
+        rag_index_loaded: boolean
+        top_k: number
+      }>('/diagnostics/rag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      setRagResult({
+        query: data.query,
+        documents: data.documents,
+        contextText: data.context_text,
+        ragIndexLoaded: data.rag_index_loaded,
+        topK: data.top_k,
+      })
+      appendLog(`diagnostics: rag ok (docs=${data.documents.length})`)
+    } catch (err) {
+      const message = parseError(err)
+      setRagError(message)
+      appendLog(`diagnostics: rag failed (${message})`)
+    } finally {
+      setRagLoading(false)
+    }
+  }
+
+  const pingDatabase = async () => {
+    setDbError(null)
+    setDbLoading(true)
+    try {
+      const data = await requestJson<{
+        status: string
+        detail?: string | null
+        conversation_log_count?: number | null
+      }>('/diagnostics/db', { method: 'GET' })
+      setDbStatus({
+        status: data.status,
+        detail: data.detail,
+        conversationLogCount: data.conversation_log_count,
+      })
+      appendLog(`diagnostics: db status ${data.status}`)
+    } catch (err) {
+      const message = parseError(err)
+      setDbError(message)
+      appendLog(`diagnostics: db failed (${message})`)
+    } finally {
+      setDbLoading(false)
+    }
+  }
+
   return (
     <div className="shell">
       <header className="hero">
@@ -723,6 +1098,264 @@ function App() {
           <ChatLog turns={chatTurns} partial={partial} />
         </section>
       </div>
+
+      <section className="panel diagnostics">
+        <div className="section-head diag-headline">
+          <div>
+            <div className="eyebrow">要素別検証</div>
+            <h3>Diagnostics Playground</h3>
+            <p className="sub small">
+              STT / LLM / TTS / Embedding / RAG / DB を個別に叩き、ボトルネックを切り分けます。
+            </p>
+          </div>
+          <div className="field api-field">
+            <label>API Base URL</label>
+            <input
+              value={apiBaseUrl}
+              onChange={(e) => setApiBaseUrl(e.target.value)}
+              placeholder={DEFAULT_API_BASE_URL}
+            />
+            <p className="hint mono small">{`${apiBase}/diagnostics/...`}</p>
+          </div>
+        </div>
+
+        <div className="diag-grid">
+          <div className="diag-card">
+            <div className="diag-head">
+              <div>
+                <div className="eyebrow">Speech to Text</div>
+                <h4>STT</h4>
+              </div>
+              <div className="pill pill-soft">
+                {sttResult ? `${(sttResult.byteLength / 1024).toFixed(1)} KB` : 'audio → text'}
+              </div>
+            </div>
+            <div className="diag-body">
+              <label className="inline-label">音声ファイル</label>
+              <input type="file" accept="audio/*" onChange={(e) => setSttFile(e.target.files?.[0] ?? null)} />
+              <div className="diag-actions">
+                <button onClick={runSttCheck} disabled={sttLoading}>
+                  {sttLoading ? 'Running...' : 'STT 実行'}
+                </button>
+                {sttResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+              </div>
+              {sttError ? <p className="error-text">{sttError}</p> : null}
+              {sttResult ? (
+                <div className="diag-result">
+                  <div className="diag-meta mono small">
+                    <span>{sttResult.provider}</span>
+                    <span>{sttResult.endpoint}</span>
+                  </div>
+                  <p className="mono small">{sttResult.text || '（空文字列）'}</p>
+                </div>
+              ) : (
+                <p className="hint">短い OGG/WebM を送り、音声のみでパイプラインを確認します。</p>
+              )}
+            </div>
+          </div>
+
+          <div className="diag-card">
+            <div className="diag-head">
+              <div>
+                <div className="eyebrow">Language</div>
+                <h4>LLM</h4>
+              </div>
+              <div className="pill pill-soft">{llmResult ? `${llmResult.latencyMs.toFixed(0)} ms` : 'prompt → tokens'}</div>
+            </div>
+            <div className="diag-body">
+              <label className="inline-label">プロンプト</label>
+              <textarea value={llmPrompt} onChange={(e) => setLlmPrompt(e.target.value)} rows={3} />
+              <label className="inline-label">コンテキスト（任意）</label>
+              <textarea
+                value={llmContext}
+                onChange={(e) => setLlmContext(e.target.value)}
+                rows={2}
+                placeholder="追加したい文脈があれば貼り付け"
+              />
+              <div className="diag-actions">
+                <button onClick={runLlmCheck} disabled={llmLoading}>
+                  {llmLoading ? 'Running...' : 'LLM 実行'}
+                </button>
+                {llmResult ? <span className="pill pill-soft">tokens {llmResult.tokens.length}</span> : null}
+                {llmResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+              </div>
+              {llmError ? <p className="error-text">{llmError}</p> : null}
+              {llmResult ? (
+                <div className="diag-result">
+                  <div className="diag-meta mono small">
+                    <span>{llmResult.provider}</span>
+                    <span>{llmResult.endpoint}</span>
+                  </div>
+                  <p className="mono small preview-text">{llmResult.assistantText || '(empty response)'}</p>
+                </div>
+              ) : (
+                <p className="hint">音声抜きで LLM 単体のレイテンシと応答をチェック。</p>
+              )}
+            </div>
+          </div>
+
+          <div className="diag-card">
+            <div className="diag-head">
+              <div>
+                <div className="eyebrow">Text to Speech</div>
+                <h4>TTS</h4>
+              </div>
+              <div className="pill pill-soft">{ttsMeta ? `${ttsMeta.byteLength} bytes` : 'text → audio'}</div>
+            </div>
+            <div className="diag-body">
+              <label className="inline-label">テキスト</label>
+              <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} rows={3} />
+              <label className="inline-label">Voice（任意）</label>
+              <input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} placeholder="provider 側の voice id" />
+              <div className="diag-actions">
+                <button onClick={runTtsCheck} disabled={ttsLoading}>
+                  {ttsLoading ? 'Running...' : 'TTS 実行'}
+                </button>
+                {ttsMeta?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+                {ttsMeta ? <span className="pill pill-soft">{ttsMeta.latencyMs.toFixed(0)} ms</span> : null}
+              </div>
+              {ttsError ? <p className="error-text">{ttsError}</p> : null}
+              {ttsAudioUrl && ttsMeta ? (
+                <div className="diag-result">
+                  <audio controls src={ttsAudioUrl} />
+                  <div className="diag-meta mono small">
+                    <span>{ttsMeta.provider}</span>
+                    <span>{ttsMeta.mimeType}</span>
+                    <span>{ttsMeta.chunkCount} chunks</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="hint">音声合成のみを実行し、再生とフォーマットを確認。</p>
+              )}
+            </div>
+          </div>
+
+          <div className="diag-card">
+            <div className="diag-head">
+              <div>
+                <div className="eyebrow">Embedding</div>
+                <h4>ベクトル生成</h4>
+              </div>
+              <div className="pill pill-soft">
+                {embeddingResult ? `${embeddingResult.dimensions} dim` : 'text → vector'}
+              </div>
+            </div>
+            <div className="diag-body">
+              <label className="inline-label">テキスト</label>
+              <textarea value={embeddingText} onChange={(e) => setEmbeddingText(e.target.value)} rows={3} />
+              <div className="diag-actions">
+                <button onClick={runEmbeddingCheck} disabled={embeddingLoading}>
+                  {embeddingLoading ? 'Running...' : 'Embedding 実行'}
+                </button>
+                {embeddingResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+              </div>
+              {embeddingError ? <p className="error-text">{embeddingError}</p> : null}
+              {embeddingResult ? (
+                <div className="diag-result">
+                  <div className="diag-meta mono small">
+                    <span>{embeddingResult.provider}</span>
+                    <span>{embeddingResult.endpoint}</span>
+                  </div>
+                  <p className="mono small vector-preview">
+                    {embeddingResult.vector.slice(0, 8).map((value, idx) => (
+                      <span key={idx} className="vector-chip">
+                        {value.toFixed(3)}
+                      </span>
+                    ))}
+                    {embeddingResult.vector.length > 8 ? ' ...' : ''}
+                  </p>
+                </div>
+              ) : (
+                <p className="hint">RAG の前段となる埋め込み生成だけを計測。</p>
+              )}
+            </div>
+          </div>
+
+          <div className="diag-card">
+            <div className="diag-head">
+              <div>
+                <div className="eyebrow">RAG</div>
+                <h4>検索</h4>
+              </div>
+              <div className="pill pill-soft">
+                {ragResult ? `${ragResult.documents.length} docs` : 'query → context'}
+              </div>
+            </div>
+            <div className="diag-body">
+              <label className="inline-label">クエリ</label>
+              <input value={ragQuery} onChange={(e) => setRagQuery(e.target.value)} />
+              <label className="inline-label">top_k</label>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={ragTopK}
+                onChange={(e) => setRagTopK(e.target.value)}
+              />
+              <div className="diag-actions">
+                <button onClick={runRagCheck} disabled={ragLoading}>
+                  {ragLoading ? 'Running...' : 'RAG 検索'}
+                </button>
+                {ragResult ? (
+                  <span className={`pill ${ragResult.ragIndexLoaded ? 'pill-soft' : 'pill-hot'}`}>
+                    index {ragResult.ragIndexLoaded ? 'loaded' : 'not loaded'}
+                  </span>
+                ) : null}
+              </div>
+              {ragError ? <p className="error-text">{ragError}</p> : null}
+              {ragResult ? (
+                <div className="diag-result">
+                  <div className="diag-meta mono small">
+                    <span>top_k: {ragResult.topK}</span>
+                    <span>docs: {ragResult.documents.length}</span>
+                  </div>
+                  <ul className="doc-list">
+                    {ragResult.documents.map((doc, idx) => (
+                      <li key={`${doc.source}-${idx}`}>
+                        <div className="pill pill-soft">#{idx + 1} {doc.source}</div>
+                        <p className="mono small">{doc.content}</p>
+                      </li>
+                    ))}
+                  </ul>
+                  <pre className="context-preview mono small">{ragResult.contextText || 'context empty'}</pre>
+                </div>
+              ) : (
+                <p className="hint">FAISS や文書ロードの結果だけを先にチェック。</p>
+              )}
+            </div>
+          </div>
+
+          <div className="diag-card">
+            <div className="diag-head">
+              <div>
+                <div className="eyebrow">Database</div>
+                <h4>DB 接続</h4>
+              </div>
+              <div className="pill pill-soft">{dbStatus?.status ?? 'ping only'}</div>
+            </div>
+            <div className="diag-body">
+              <p className="hint">DB だけを切り離してヘルス確認。ログ件数が取れれば書き込みも確認。</p>
+              <div className="diag-actions">
+                <button onClick={pingDatabase} disabled={dbLoading}>
+                  {dbLoading ? 'Pinging...' : 'DB Ping'}
+                </button>
+              </div>
+              {dbError ? <p className="error-text">{dbError}</p> : null}
+              {dbStatus ? (
+                <div className="diag-result">
+                  <div className="diag-meta mono small">
+                    <span>status: {dbStatus.status}</span>
+                    {typeof dbStatus.conversationLogCount === 'number' ? (
+                      <span>logs: {dbStatus.conversationLogCount}</span>
+                    ) : null}
+                  </div>
+                  {dbStatus.detail ? <p className="mono small">{dbStatus.detail}</p> : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="panel log">
         <div className="section-head">

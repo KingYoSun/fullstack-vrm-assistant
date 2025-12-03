@@ -22,6 +22,7 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
    cp .env.default .env
    # LLM で NIM を使う場合は NGC_API_KEY を .env に設定
    ```
+   - Backend 依存は `backend/requirements.dev.txt` にあり、`UploadFile`/Form 用に `python-multipart` も含めています。
    - 起動時は `COMPOSE_PROFILES` に `prod` / `dev` / `mock` のいずれかを指定してください（以下は `prod` 例）。
 2. モデルを配置（例は `docs/03_implementation/production_runtime.md` を参照）
    - STT: `./models/stt/ggml-base.bin` など Whisper GGUF
