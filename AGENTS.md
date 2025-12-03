@@ -7,11 +7,11 @@
 - 現状: 設計フェーズ。実装後はこの節を最新の実コマンドに合わせて都度更新する。
 - Backend (FastAPI想定)
   - 依存: Python 3.12 系を想定。
-  - ローカル開発: docker compose（dev 用プロファイル/override）で起動し、ソースを bind mount してホットリロードする。ホストでの直接起動は避ける。例: `docker compose -f docker-compose.dev.yml up backend`（ファイル整備後に更新）。
+  - ローカル開発: docker compose（dev プロファイル）で起動し、ソースを bind mount してホットリロードする。ホストでの直接起動は避ける。例: `COMPOSE_PROFILES=dev docker compose up backend-dev`。
 - Frontend (Vite + React + TypeScript 想定)
   - 依存: Node.js LTS (推奨: 20.x)。パッケージマネージャは `pnpm` を第一候補（未決なら `npm` でも可、統一する）。
-  - ローカル開発: docker compose（dev 用プロファイル/override）でフロントエンドコンテナを起動し、`pnpm dev -- --host` をコンテナ内で実行。ホストでの直接起動は避ける。例: `docker compose -f docker-compose.dev.yml up frontend`。
-- コンテナ起動: `docker compose up -d` を最終形とし、GPU は `runtime: nvidia` + `device_requests` で割り当てる。
+  - ローカル開発: docker compose（dev プロファイル）でフロントエンドコンテナを起動し、`pnpm dev -- --host` をコンテナ内で実行。ホストでの直接起動は避ける。例: `COMPOSE_PROFILES=dev docker compose up frontend-dev`。
+- コンテナ起動: `COMPOSE_PROFILES=prod docker compose up -d` を最終形とし、GPU は `runtime: nvidia` + `device_requests` で割り当てる。
 - 依存追加時は README/ドキュメントに反映し、ロックファイルを必ず更新する。
 
 ## コーディング規約

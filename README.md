@@ -22,6 +22,7 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
    cp .env.default .env
    # LLM で NIM を使う場合は NGC_API_KEY を .env に設定
    ```
+   - 起動時は `COMPOSE_PROFILES` に `prod` / `dev` / `mock` のいずれかを指定してください（以下は `prod` 例）。
 2. モデルを配置（例は `docs/03_implementation/production_runtime.md` を参照）
    - STT: `./models/stt/ggml-base.bin` など Whisper GGUF
    - TTS: `./models/tts/` に Open Audio S1 mini、話者リファレンスは `./references/tts/`
@@ -29,11 +30,11 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
    - LLM: `./models/llm` は NIM が起動時に取得（事前に作成しておく）
 3. イメージをビルド（backend/frontend の依存も Dockerfile でまとめておく）
    ```bash
-   docker compose build backend frontend stt tts embedding
+   COMPOSE_PROFILES=prod docker compose build backend frontend stt tts embedding
    ```
 4. スタックを起動
    ```bash
-   docker compose up -d
+   COMPOSE_PROFILES=prod docker compose up -d
    ```
 5. 動作確認
    - LLM ヘルス: `curl http://localhost:18000/v1/health/ready`
@@ -41,24 +42,20 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
    - フロント: `http://localhost:5173` にアクセスし、WS は `ws://localhost:8000/ws/session/{id}`
 
 ### 開発・モック
-- ホットリロード付き開発（モックプロバイダ接続）:
-  ```bash
-  docker compose -f docker-compose.dev.yml --profile dev up
-  ```
-- GPU なしの疎通確認（echo-server を使用）:
-  ```bash
-  docker compose --profile mock up -d
-  ```
+- ホットリロード付き開発（dev プロファイル）
+  - backend/frontend だけを起動: `make dev`
+  - プロバイダ/PostgreSQL も含めて起動: `COMPOSE_PROFILES=dev docker compose up -d`（または `make dev-all`）
+- GPU なしの疎通確認（echo-server を使用）
+  - プロバイダのみをモックで起動: `COMPOSE_PROFILES=mock docker compose up -d`
 - 依存を更新した場合は backend/frontend も含めて再ビルドしてください:
   ```bash
-  docker compose build backend frontend
+  COMPOSE_PROFILES=prod docker compose build backend frontend
   ```
 
 ## ファイル構成
 ```
 .
-├ docker-compose.yml            # 本番相当の compose（GPU/実プロバイダ）
-├ docker-compose.dev.yml        # dev 用 compose（ホットリロード + モック）
+├ docker-compose.yml            # prod/dev/mock を profiles で切り替える compose
 ├ backend/                      # FastAPI + LangChain + Provider 抽象
 ├ frontend/                     # Vite + React + three-vrm UI
 ├ config/providers.yaml         # LLM/STT/TTS/Embedding/RAG の設定（環境変数で上書き）
@@ -75,7 +72,7 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
 - `config/providers.yaml` は環境変数参照で、`load_providers_config` が未解決プレースホルダを検出します。
 - RAG インデックス作成例:
   ```bash
-  docker compose run --rm backend \
+  COMPOSE_PROFILES=prod docker compose run --rm backend \
     sh -c "cd /workspace/backend && python -m app.cli.ingest --source /workspace/docs --index ${RAG_INDEX_PATH:-/data/faiss/index.bin}"
   ```
 

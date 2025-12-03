@@ -53,15 +53,15 @@ wget -O ./models/embedding/embd-model.gguf \
 - `EMBEDDING_MODEL` でファイル名を指定。ビルド: `docker compose build embedding`。
 
 ## 起動・切り替え
-- 本番相当: `docker compose up -d`（モデルが未配置だと llm/stt/tts/embedding が起動失敗する）。
-- モック: `docker compose --profile mock up -d`（llm/stt/tts/embedding を echo サーバに置き換えて疎通確認）。
-- 開発ホットリロード: `docker compose -f docker-compose.dev.yml --profile dev up` を従来通り使用。
+- 本番相当: `COMPOSE_PROFILES=prod docker compose up -d`（モデルが未配置だと llm/stt/tts/embedding が起動失敗する）。
+- モック: `COMPOSE_PROFILES=mock docker compose up -d`（llm/stt/tts/embedding を echo サーバに置き換えて疎通確認）。
+- 開発ホットリロード: `COMPOSE_PROFILES=dev docker compose up -d`（backend-dev/frontend-dev + 実プロバイダを起動、軽量に試す場合は `make dev` を利用）。
 - GPU/プラットフォームを変える場合は `.env` の `*_PLATFORM` と `*_BACKEND` を合わせて更新。
 
 ## RAG/Embedding ジョブ
 - ingest 例（`.env` の embedding/RAG 設定を利用）:
 ```bash
-docker compose run --rm backend \
+COMPOSE_PROFILES=prod docker compose run --rm backend \
   sh -c "cd /workspace/backend && python -m app.cli.ingest --source /workspace/docs --index ${RAG_INDEX_PATH:-/data/faiss/index.bin}"
 ```
 - `/data` がホストにマウントされるため、生成されたインデックスは `data/faiss/` に残る。

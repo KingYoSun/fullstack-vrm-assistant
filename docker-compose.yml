@@ -40,6 +40,37 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    profiles:
+      - prod
+
+  backend-dev:
+    image: vrm-backend:local
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend/Dockerfile
+    container_name: vrm-backend-dev
+    working_dir: /workspace/backend
+    command: ["sh", "-c", "uvicorn app.main:app --reload --host 0.0.0.0 --port ${BACKEND_PORT:-8000}"]
+    volumes:
+      - ./backend:/workspace/backend
+      - ./config:/workspace/config:ro
+      - ./data:/data
+    <<: *common-env
+    environment:
+      - PROVIDERS_CONFIG_PATH=/workspace/config/providers.yaml
+      - PYTHONPATH=/workspace/backend
+    ports:
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${BACKEND_PORT:-8000}/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    profiles:
+      - dev
 
   frontend:
     image: vrm-frontend:local
@@ -54,6 +85,28 @@ services:
     depends_on:
       backend:
         condition: service_started
+    profiles:
+      - prod
+
+  frontend-dev:
+    image: vrm-frontend:local
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend/Dockerfile
+    container_name: vrm-frontend-dev
+    working_dir: /workspace/frontend
+    command: ["sh", "-c", "pnpm dev --host --port ${FRONTEND_PORT:-5173}"]
+    volumes:
+      - ./frontend:/workspace/frontend
+      - frontend_node_modules:/workspace/frontend/node_modules
+    <<: *common-env
+    ports:
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
+    depends_on:
+      backend-dev:
+        condition: service_started
+    profiles:
+      - dev
 
   llm:
     image: ${LLM_IMAGE:-nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest}
@@ -73,6 +126,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    profiles:
+      - prod
+      - dev
 
   stt:
     image: ${STT_IMAGE:-local/whisper-stt:cuda}
@@ -96,6 +152,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    profiles:
+      - prod
+      - dev
 
   tts:
     image: ${TTS_IMAGE:-local/openvoice:cuda}
@@ -116,6 +175,9 @@ services:
       bash -lc "${TTS_COMMAND:-/app/start_server.sh}"
     ports:
       - "${TTS_PORT:-7007}:${TTS_PORT:-7007}"
+    profiles:
+      - prod
+      - dev
 
   embedding:
     image: ${EMBEDDING_IMAGE:-local/llama-embedding:cuda}
@@ -141,6 +203,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    profiles:
+      - prod
+      - dev
 
   postgres:
     image: postgres:16-alpine
@@ -159,6 +224,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - prod
+      - dev
 
   llm-mock:
     image: docker.io/ealen/echo-server:latest
@@ -218,3 +286,4 @@ services:
 
 volumes:
   postgres_data:
+  frontend_node_modules:

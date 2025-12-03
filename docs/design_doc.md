@@ -69,7 +69,7 @@
   * ローカルモデル → クラウドAPIへの切り替え等が、**設定変更だけ**で可能
 * デプロイ
 
-  * `docker compose up` だけで、全てのサービスが起動し疎通する
+  * `COMPOSE_PROFILES=prod docker compose up` だけで、全てのサービスが起動し疎通する
 
 ---
 
@@ -760,7 +760,7 @@ volumes:
   postgres_data:
 ```
 
-> モデルを `./models` 配下に配置し、`.env` のパラメータ（NGC_API_KEY, *_MODEL, *_PORT, *_PLATFORM など）を埋めたうえで `docker compose up -d`。モックでの疎通確認は `docker compose --profile mock up -d` を利用する。
+> モデルを `./models` 配下に配置し、`.env` のパラメータ（NGC_API_KEY, *_MODEL, *_PORT, *_PLATFORM など）を埋めたうえで `COMPOSE_PROFILES=prod docker compose up -d`。モックでの疎通確認は `COMPOSE_PROFILES=mock docker compose up -d` を利用する。
 
 ---
 

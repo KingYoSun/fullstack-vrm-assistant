@@ -85,7 +85,7 @@ curl -s -N -X POST http://localhost:8000/api/v1/text-chat \
   -d '{"session_id":"sess-ws-dryrun","user_text":"音声WS設計を確認したい"}'
 
 # ingest （必要に応じて）
-docker compose -f docker-compose.dev.yml --profile dev run --rm \
-  -v $(pwd)/docs:/workspace/docs backend \
+COMPOSE_PROFILES=dev docker compose run --rm \
+  -v $(pwd)/docs:/workspace/docs backend-dev \
   sh -c "cd /workspace/backend && python -m app.cli.ingest --source /workspace/docs --index /data/faiss/index.bin"
 ```

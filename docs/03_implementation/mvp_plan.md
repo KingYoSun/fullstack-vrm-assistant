@@ -70,7 +70,7 @@
 - 発話停止後、LLM 応答が 2s p95 以内に音声再生開始。
 - three-vrm が表示され、音声再生中に口パクが動く。
 - RAG: ローカルで ingest した文書を元に LLM が回答（簡易で可）。
-- `docker compose up`（dev/prod）で一発起動し、接続先エンドポイントは `config/providers.yaml` から解決。
+- `COMPOSE_PROFILES=dev|prod docker compose up` で一発起動し、接続先エンドポイントは `config/providers.yaml` から解決。
 - LLM/STT/TTS/Embedding は実プロバイダ接続で正常に応答し、通常経路でフォールバックが発火しない。
 
 ## リスク/課題メモ

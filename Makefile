@@ -1,22 +1,21 @@
-COMPOSE_FILE := docker-compose.dev.yml
-COMPOSE := docker compose -f $(COMPOSE_FILE)
+COMPOSE := docker compose
 
 .PHONY: dev
 dev:
-	$(COMPOSE) --profile dev up -d backend frontend
+	COMPOSE_PROFILES=dev $(COMPOSE) --profile dev up -d backend-dev frontend-dev
 
 .PHONY: dev-all
 dev-all:
-	$(COMPOSE) --profile dev up -d
+	COMPOSE_PROFILES=dev $(COMPOSE) --profile dev up -d
 
 .PHONY: dev-down
 dev-down:
-	$(COMPOSE) --profile dev down
+	COMPOSE_PROFILES=dev $(COMPOSE) --profile dev down
 
 .PHONY: dev-logs
 dev-logs:
-	$(COMPOSE) --profile dev logs -f backend frontend
+	COMPOSE_PROFILES=dev $(COMPOSE) --profile dev logs -f backend-dev frontend-dev
 
 .PHONY: dev-ps
 dev-ps:
-	$(COMPOSE) --profile dev ps
+	COMPOSE_PROFILES=dev $(COMPOSE) --profile dev ps
