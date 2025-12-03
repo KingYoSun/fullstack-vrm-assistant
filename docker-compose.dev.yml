@@ -6,28 +6,13 @@ x-mock-provider: &mock-provider
 
 services:
   backend:
-    image: python:3.12-slim
+    image: vrm-backend:local
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend/Dockerfile
     container_name: vrm-backend-dev
     working_dir: /workspace/backend
-    command: >-
-      sh -c "
-        cd /workspace/backend &&
-        apt-get update &&
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg build-essential &&
-        rm -rf /var/lib/apt/lists/* &&
-        python -m pip install --no-cache-dir --upgrade pip setuptools wheel &&
-        if [ -f requirements.dev.txt ]; then
-          PIP_NO_BUILD_ISOLATION=1 pip install --no-cache-dir -r requirements.dev.txt;
-        else
-          echo 'requirements.dev.txt が見つかりません。依存を追加後に再実行してください。';
-        fi &&
-        if [ -f app/main.py ]; then
-          uvicorn app.main:app --reload --host 0.0.0.0 --port ${BACKEND_PORT:-8000};
-        else
-          echo 'app/main.py が見つかりません。バックエンド初期化後に再起動してください。' &&
-          tail -f /dev/null;
-        fi
-      "
+    command: ["sh", "-c", "uvicorn app.main:app --reload --host 0.0.0.0 --port ${BACKEND_PORT:-8000}"]
     volumes:
       - ./backend:/workspace/backend
       - ./config:/workspace/config:ro
@@ -49,21 +34,13 @@ services:
       - dev
 
   frontend:
-    image: node:20-bullseye
+    image: vrm-frontend:local
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend/Dockerfile
     container_name: vrm-frontend-dev
     working_dir: /workspace/frontend
-    command: >-
-      sh -c "
-        cd /workspace/frontend &&
-        corepack enable &&
-        if [ -f package.json ]; then
-          pnpm install --frozen-lockfile=false &&
-          pnpm dev -- --host --port ${FRONTEND_PORT:-5173};
-        else
-          echo 'package.json が見つかりません。Vite+React 初期化後に再起動してください。' &&
-          tail -f /dev/null;
-        fi
-      "
+    command: ["sh", "-c", "pnpm dev -- --host --port ${FRONTEND_PORT:-5173}"]
     volumes:
       - ./frontend:/workspace/frontend
       - frontend_node_modules:/workspace/frontend/node_modules

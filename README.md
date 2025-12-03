@@ -27,9 +27,9 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
    - TTS: `./models/tts/` に Open Audio S1 mini、話者リファレンスは `./references/tts/`
    - Embedding: `./models/embedding/embd-model.gguf`（nomic-embed-text など）
    - LLM: `./models/llm` は NIM が起動時に取得（事前に作成しておく）
-3. CUDA 対応イメージをビルド
+3. イメージをビルド（backend/frontend の依存も Dockerfile でまとめておく）
    ```bash
-   docker compose build stt tts embedding
+   docker compose build backend frontend stt tts embedding
    ```
 4. スタックを起動
    ```bash
@@ -49,6 +49,10 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
   ```bash
   docker compose --profile mock up -d
   ```
+- 依存を更新した場合は backend/frontend も含めて再ビルドしてください:
+  ```bash
+  docker compose build backend frontend
+  ```
 
 ## ファイル構成
 ```
@@ -59,7 +63,7 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
 ├ frontend/                     # Vite + React + three-vrm UI
 ├ config/providers.yaml         # LLM/STT/TTS/Embedding/RAG の設定（環境変数で上書き）
 ├ docs/                         # 設計/実装/タスク/進捗ドキュメント
-├ docker/                       # STT/TTS/Embedding 用 Dockerfile 群
+├ docker/                       # backend/frontend/STT/TTS/Embedding 用 Dockerfile 群
 ├ data/                         # RAG 用 FAISS インデックス出力先（ホストマウント）
 ├ models/                       # モデル配置ディレクトリ（llm/stt/tts/embedding）
 ├ references/                   # TTS リファレンス音声など

@@ -16,31 +16,14 @@ x-nvidia: &nvidia
 
 services:
   backend:
-    image: python:3.12-slim
+    image: vrm-backend:local
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend/Dockerfile
     container_name: vrm-backend
     restart: unless-stopped
     working_dir: /workspace/backend
-    command: >-
-      sh -c "
-        cd /workspace/backend &&
-        apt-get update &&
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg build-essential curl &&
-        rm -rf /var/lib/apt/lists/* &&
-        python -m pip install --no-cache-dir --upgrade pip setuptools wheel &&
-        if [ -f requirements.dev.txt ]; then
-          PIP_NO_BUILD_ISOLATION=1 pip install --no-cache-dir -r requirements.dev.txt;
-        else
-          echo 'requirements.dev.txt が見つかりません。依存を追加後に再実行してください。';
-        fi &&
-        if [ -f app/main.py ]; then
-          uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000};
-        else
-          echo 'app/main.py が見つかりません。バックエンド初期化後に再起動してください。' &&
-          tail -f /dev/null;
-        fi
-      "
     volumes:
-      - ./backend:/workspace/backend
       - ./config:/workspace/config:ro
       - ./data:/data
     <<: *common-env
@@ -59,26 +42,12 @@ services:
       retries: 5
 
   frontend:
-    image: node:20-bullseye
+    image: vrm-frontend:local
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend/Dockerfile
     container_name: vrm-frontend
     restart: unless-stopped
-    working_dir: /workspace/frontend
-    command: >-
-      sh -c "
-        cd /workspace/frontend &&
-        corepack enable &&
-        if [ -f package.json ]; then
-          pnpm install --frozen-lockfile=false &&
-          pnpm build &&
-          pnpm preview -- --host --port ${FRONTEND_PORT:-5173};
-        else
-          echo 'package.json が見つかりません。Vite+React 初期化後に再起動してください。' &&
-          tail -f /dev/null;
-        fi
-      "
-    volumes:
-      - ./frontend:/workspace/frontend
-      - frontend_node_modules:/workspace/frontend/node_modules
     <<: *common-env
     ports:
       - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
@@ -248,5 +217,4 @@ services:
           - embedding
 
 volumes:
-  frontend_node_modules:
   postgres_data:

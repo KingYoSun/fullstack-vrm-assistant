@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.turbo/
+.next/
+.cache/
+.env
+.env.*/
+.vscode/
+.idea/
+coverage/
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+.git
+.gitignore
