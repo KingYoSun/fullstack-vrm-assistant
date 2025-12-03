@@ -47,12 +47,15 @@ class WebSocketSession:
         self._input_chunks: Deque[bytes] = deque()
         self._pcm_chunks: Deque[bytes] = deque()
         self._pcm_buffer = bytearray()
+        self._pcm_decoded_bytes = 0
         self._input_max_chunks = input_max_chunks
         self._tts_max_chunks = tts_max_chunks
         self._state: str = "listening"
         self._silence_task: asyncio.Task | None = None
         self._current_turn_id: str | None = None
         self._last_avatar_event_at: float = 0.0
+        self._input_format_hint: str | None = None
+        self._ffmpeg_error_logged = False
         self._vad_sample_rate = providers.config.stt.target_sample_rate or 16000
         self._vad_frame_ms = 20
         self._vad_frame_bytes = int(self._vad_sample_rate * 2 * self._vad_frame_ms / 1000)
@@ -134,8 +137,11 @@ class WebSocketSession:
             if self._pcm_chunks:
                 self._pcm_chunks.popleft()
             dropped = True
+            self._pcm_decoded_bytes = 0
 
         self._input_chunks.append(data)
+        if self._input_format_hint is None:
+            self._input_format_hint = self._detect_input_format(data)
         if self._current_turn_id is None:
             self._current_turn_id = uuid4().hex
 
@@ -198,6 +204,9 @@ class WebSocketSession:
         self._input_chunks.clear()
         self._pcm_chunks.clear()
         self._pcm_buffer.clear()
+        self._pcm_decoded_bytes = 0
+        self._input_format_hint = None
+        self._ffmpeg_error_logged = False
         self._current_turn_id = None
         self._consecutive_silence_ms = 0
 
@@ -438,17 +447,55 @@ class WebSocketSession:
             }
         )
 
-    async def _decode_opus_chunk(self, data: bytes) -> bytes | None:
-        if not data:
+    def _detect_input_format(self, data: bytes) -> str | None:
+        if data.startswith(b"OggS"):
+            return "ogg"
+        if data.startswith(b"\x1a\x45\xdf\xa3"):
+            # WebM/Matroska EBML header
+            return "webm"
+        if data.startswith(b"RIFF") and data[8:12] == b"WAVE":
+            return "wav"
+        return None
+
+    async def _decode_opus_chunk(self, latest_chunk: bytes) -> bytes | None:
+        if not latest_chunk:
             return None
         if not self._ffmpeg_available:
             # ffmpeg が無い場合はそのまま PCM として扱う（入力が PCM 前提の簡易フォールバック）
-            return data
+            return latest_chunk
+
+        input_bytes = b"".join(self._input_chunks)
+        if not input_bytes:
+            return None
+
+        format_hint = self._input_format_hint
 
         def _run_ffmpeg() -> bytes | None:
-            try:
-                # まずはフォーマット自動判別に任せる（WebM/OGG/Opus 生を許容）
-                base_cmd = [
+            errors: list[str] = []
+            candidates: list[list[str]] = []
+
+            if format_hint:
+                candidates.append(
+                    [
+                        "ffmpeg",
+                        "-f",
+                        format_hint,
+                        "-i",
+                        "pipe:0",
+                        "-ac",
+                        "1",
+                        "-ar",
+                        str(self._vad_sample_rate),
+                        "-f",
+                        "s16le",
+                        "pipe:1",
+                        "-loglevel",
+                        "error",
+                    ]
+                )
+
+            candidates.append(
+                [
                     "ffmpeg",
                     "-i",
                     "pipe:0",
@@ -462,45 +509,84 @@ class WebSocketSession:
                     "-loglevel",
                     "error",
                 ]
-                result = subprocess.run(
-                    base_cmd,
-                    input=data,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    check=True,
-                )
-                return result.stdout
-            except subprocess.CalledProcessError:
-                # フォーマット自動判別が失敗した場合は raw Opus とみなして再試行
-                try:
-                    result = subprocess.run(
-                        [
-                            "ffmpeg",
-                            "-f",
-                            "opus",
-                            "-i",
-                            "pipe:0",
-                            "-ac",
-                            "1",
-                            "-ar",
-                            str(self._vad_sample_rate),
-                            "-f",
-                            "s16le",
-                            "pipe:1",
-                            "-loglevel",
-                            "error",
-                        ],
-                        input=data,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        check=True,
-                    )
-                    return result.stdout
-                except subprocess.CalledProcessError as exc:  # noqa: PERF203
-                    logger.warning("ffmpeg decode failed: %s", exc.stderr.decode("utf-8", "ignore"))
-                    return None
+            )
 
-        return await asyncio.to_thread(_run_ffmpeg)
+            # WebM/Opus の明示指定フォールバック
+            candidates.append(
+                [
+                    "ffmpeg",
+                    "-f",
+                    "webm",
+                    "-i",
+                    "pipe:0",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(self._vad_sample_rate),
+                    "-f",
+                    "s16le",
+                    "pipe:1",
+                    "-loglevel",
+                    "error",
+                ]
+            )
+            # Ogg/Opus のフォールバック
+            candidates.append(
+                [
+                    "ffmpeg",
+                    "-f",
+                    "ogg",
+                    "-i",
+                    "pipe:0",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(self._vad_sample_rate),
+                    "-f",
+                    "s16le",
+                    "pipe:1",
+                    "-loglevel",
+                    "error",
+                ]
+            )
+
+            try:
+                for cmd in candidates:
+                    try:
+                        result = subprocess.run(
+                            cmd,
+                            input=input_bytes,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            check=True,
+                        )
+                        return result.stdout
+                    except subprocess.CalledProcessError as exc:  # noqa: PERF203
+                        errors.append(exc.stderr.decode("utf-8", "ignore"))
+                if errors:
+                    last_error = errors[-1]
+                    lowered = last_error.lower()
+                    benign = "end of file" in lowered or "invalid data" in lowered
+                    if not benign and not self._ffmpeg_error_logged:
+                        self._ffmpeg_error_logged = True
+                        logger.warning("ffmpeg decode failed: %s", last_error)
+                return None
+            except Exception as exc:  # noqa: BLE001
+                if not self._ffmpeg_error_logged:
+                    self._ffmpeg_error_logged = True
+                    logger.warning("ffmpeg decode failed (unexpected): %s", exc)
+                return None
+
+        decoded = await asyncio.to_thread(_run_ffmpeg)
+        if decoded is None:
+            return None
+
+        if len(decoded) <= self._pcm_decoded_bytes:
+            return b""
+
+        new_chunk = decoded[self._pcm_decoded_bytes :]
+        self._pcm_decoded_bytes = len(decoded)
+        return new_chunk
 
     def _update_vad(self, pcm_chunk: bytes) -> bool:
         if not self._vad:

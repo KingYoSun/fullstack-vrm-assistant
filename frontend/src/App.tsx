@@ -19,6 +19,18 @@ type ChatTurn = {
 
 type LatencyMap = { stt?: number; llm?: number; tts?: number }
 
+type LegacyGetUserMedia = (
+  constraints: MediaStreamConstraints,
+  successCallback: (stream: MediaStream) => void,
+  errorCallback?: (error: unknown) => void
+) => void
+
+type NavigatorWithLegacyGetUserMedia = Navigator & {
+  getUserMedia?: LegacyGetUserMedia
+  webkitGetUserMedia?: LegacyGetUserMedia
+  mozGetUserMedia?: LegacyGetUserMedia
+}
+
 const DEFAULT_VRM = '/AliciaSolid.vrm'
 const DEFAULT_WS_PATH = '/ws/session'
 
@@ -209,6 +221,17 @@ function App() {
   const mouthRafRef = useRef<number | null>(null)
   const currentTurnIdRef = useRef<string | null>(null)
 
+  const micSupported = useMemo(() => {
+    if (typeof navigator === 'undefined') return false
+    const nav = navigator as NavigatorWithLegacyGetUserMedia
+    return Boolean(
+      nav.mediaDevices?.getUserMedia ??
+        nav.getUserMedia ??
+        nav.webkitGetUserMedia ??
+        nav.mozGetUserMedia
+    )
+  }, [])
+
   const wsUrl = useMemo(() => {
     const normalized = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
     return `${normalized}/${sessionId}`
@@ -244,6 +267,16 @@ function App() {
       return next.slice(-80)
     })
   }
+
+  useEffect(() => {
+    if (!micSupported) {
+      const hint =
+        typeof window !== 'undefined' && !window.isSecureContext
+          ? 'secure context ではないためマイク API が無効です（HTTPS または localhost で開いてください）'
+          : 'ブラウザがマイク API をサポートしていません'
+      appendLog(`mic unsupported: ${hint}`)
+    }
+  }, [micSupported])
 
   const ensureTurnId = (turnId?: string) => {
     if (turnId) {
@@ -314,10 +347,32 @@ function App() {
     wsRef.current.send(JSON.stringify({ type }))
   }
 
+  const requestMicStream = async () => {
+    if (typeof navigator === 'undefined') {
+      throw new Error('navigator is not available（非ブラウザ環境）')
+    }
+    const nav = navigator as NavigatorWithLegacyGetUserMedia
+    const mediaDevicesGetUserMedia = nav.mediaDevices?.getUserMedia
+    if (mediaDevicesGetUserMedia) {
+      return mediaDevicesGetUserMedia.call(nav.mediaDevices, { audio: true })
+    }
+    const legacy = nav.getUserMedia ?? nav.webkitGetUserMedia ?? nav.mozGetUserMedia
+    if (legacy) {
+      return new Promise<MediaStream>((resolve, reject) => {
+        legacy.call(nav, { audio: true }, resolve, reject)
+      })
+    }
+    const secureContext = typeof window !== 'undefined' ? window.isSecureContext : true
+    const hint = secureContext
+      ? 'ブラウザがマイク API をサポートしていません'
+      : 'HTTPS または localhost でアクセスしてください（secure context でないためマイク API が無効）'
+    throw new Error(hint)
+  }
+
   const startMic = async () => {
     if (micActive || state !== 'connected') return
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await requestMicStream()
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm'
@@ -600,7 +655,7 @@ function App() {
           <button onClick={() => sendControl('resume')} disabled={state !== 'connected'}>
             Resume
           </button>
-          <button onClick={startMic} disabled={state !== 'connected' || micActive}>
+          <button onClick={startMic} disabled={state !== 'connected' || micActive || !micSupported}>
             Start Mic
           </button>
           <button onClick={stopMic} disabled={!micActive}>
