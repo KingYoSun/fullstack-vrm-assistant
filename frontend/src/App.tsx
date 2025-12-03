@@ -20,6 +20,33 @@ type ChatTurn = {
 type LatencyMap = { stt?: number; llm?: number; tts?: number }
 
 const DEFAULT_VRM = '/AliciaSolid.vrm'
+const DEFAULT_WS_PATH = '/ws/session'
+
+const normalizePath = (path: string) => {
+  if (!path) return DEFAULT_WS_PATH
+  const withLeadingSlash = path.startsWith('/') ? path : `/${path}`
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash.slice(0, -1) : withLeadingSlash
+}
+
+const resolveDefaultWsBaseUrl = () => {
+  const explicitBase = import.meta.env.VITE_WS_BASE_URL
+  if (explicitBase) return explicitBase
+
+  const wsPath = normalizePath(import.meta.env.VITE_WS_PATH ?? DEFAULT_WS_PATH)
+  const host =
+    import.meta.env.VITE_BACKEND_HOST ||
+    (typeof window !== 'undefined' && window.location.hostname) ||
+    'localhost'
+  const envPort = import.meta.env.VITE_BACKEND_PORT
+  const port = envPort === '' ? '' : envPort ?? '8000'
+  const protocol =
+    typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const portPart = port ? `:${port}` : ''
+
+  return `${protocol}//${host}${portPart}${wsPath}`
+}
+
+const DEFAULT_WS_BASE_URL = resolveDefaultWsBaseUrl()
 
 type CanvasErrorBoundaryProps = { resetKey?: string; onError?: (error: Error) => void; children: ReactNode }
 type CanvasErrorBoundaryState = { error: Error | null }
@@ -160,7 +187,7 @@ function ChatLog({ turns, partial }: ChatLogProps) {
 }
 
 function App() {
-  const [baseUrl, setBaseUrl] = useState('ws://localhost:8000/ws/session')
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_WS_BASE_URL)
   const [sessionId, setSessionId] = useState('demo-session')
   const [vrmUrl, setVrmUrl] = useState(DEFAULT_VRM)
   const [state, setState] = useState<WsState>('disconnected')
@@ -545,7 +572,7 @@ function App() {
             <input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="ws://localhost:8000/ws/session"
+              placeholder={DEFAULT_WS_BASE_URL}
             />
           </div>
           <div className="field">

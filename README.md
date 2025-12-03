@@ -39,7 +39,7 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
 5. 動作確認
    - LLM ヘルス: `curl http://localhost:18000/v1/health/ready`
    - Backend ready: `curl http://localhost:8000/ready`
-   - フロント: `http://localhost:5173` にアクセスし、WS は `ws://localhost:8000/ws/session/{id}`
+   - フロント: `http://<DGXホスト>:5173` にアクセス。WS はアクセス元ホスト + `VITE_BACKEND_PORT`（デフォルト 8000）+ `VITE_WS_PATH`（デフォルト `/ws/session`）から自動組み立てられ、`wss`/`ws` はページのプロトコルに追随します。別ホスト/パスを使う場合は `.env` の `VITE_WS_BASE_URL`（優先）または `VITE_BACKEND_HOST`/`VITE_BACKEND_PORT`/`VITE_WS_PATH` を設定してください。
 
 ### 開発・モック
 - ホットリロード付き開発（dev プロファイル）
@@ -69,6 +69,7 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
 
 ## 設定のポイント
 - `.env` にポート/モデルパス/プロバイダエンドポイントを集約（Node は pnpm、Python は 3.12 を想定）。
+- フロントエンドの接続先は `.env` で `VITE_WS_BASE_URL` を指定するか、`VITE_BACKEND_HOST`/`VITE_BACKEND_PORT`/`VITE_WS_PATH` を組み合わせて設定できます（未指定時はアクセス元ホスト + port 8000 + `/ws/session` を自動利用）。
 - `config/providers.yaml` は環境変数参照で、`load_providers_config` が未解決プレースホルダを検出します。
 - RAG インデックス作成例:
   ```bash

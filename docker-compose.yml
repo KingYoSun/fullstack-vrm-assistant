@@ -77,6 +77,11 @@ services:
     build:
       context: ./frontend
       dockerfile: ../docker/frontend/Dockerfile
+      args:
+        VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-}
+        VITE_BACKEND_HOST: ${VITE_BACKEND_HOST:-}
+        VITE_BACKEND_PORT: ${VITE_BACKEND_PORT:-8000}
+        VITE_WS_PATH: ${VITE_WS_PATH:-/ws/session}
     container_name: vrm-frontend
     restart: unless-stopped
     <<: *common-env
@@ -93,6 +98,11 @@ services:
     build:
       context: ./frontend
       dockerfile: ../docker/frontend/Dockerfile
+      args:
+        VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-}
+        VITE_BACKEND_HOST: ${VITE_BACKEND_HOST:-}
+        VITE_BACKEND_PORT: ${VITE_BACKEND_PORT:-8000}
+        VITE_WS_PATH: ${VITE_WS_PATH:-/ws/session}
     container_name: vrm-frontend-dev
     working_dir: /workspace/frontend
     command: ["sh", "-c", "pnpm dev --host --port ${FRONTEND_PORT:-5173}"]
