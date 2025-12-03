@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Canvas, useFrame, useLoader } from '@react-three/fiber'
 import { Html, OrbitControls } from '@react-three/drei'
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
@@ -19,8 +19,45 @@ type ChatTurn = {
 
 type LatencyMap = { stt?: number; llm?: number; tts?: number }
 
-const DEFAULT_VRM =
-  'https://raw.githubusercontent.com/pixiv/three-vrm/main/packages/three-vrm/examples/models/Alicia/AliciaSolid.vrm'
+const DEFAULT_VRM = '/AliciaSolid.vrm'
+
+type CanvasErrorBoundaryProps = { resetKey?: string; onError?: (error: Error) => void; children: ReactNode }
+type CanvasErrorBoundaryState = { error: Error | null }
+
+class CanvasErrorBoundary extends Component<CanvasErrorBoundaryProps, CanvasErrorBoundaryState> {
+  state: CanvasErrorBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error): CanvasErrorBoundaryState {
+    return { error }
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError?.(error)
+  }
+
+  componentDidUpdate(prevProps: CanvasErrorBoundaryProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null })
+    }
+  }
+
+  handleReset = () => {
+    this.setState({ error: null })
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="canvas-error">
+          <div className="eyebrow">VRM 読み込みエラー</div>
+          <p className="mono small">{this.state.error.message}</p>
+          <button onClick={this.handleReset}>再試行</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 type VrmModelProps = { url: string; mouthOpen: number; onLoaded?: (name: string) => void }
 
@@ -573,7 +610,12 @@ function App() {
             <div className="pill pill-soft">mouth {mouthOpen.toFixed(2)}</div>
           </div>
           <div className="canvas-wrap">
-            <AvatarCanvas key={vrmUrl} url={vrmUrl} mouthOpen={mouthOpen} onLoaded={setAvatarName} />
+            <CanvasErrorBoundary
+              resetKey={vrmUrl}
+              onError={(err) => appendLog(`vrm load error: ${err.message}`)}
+            >
+              <AvatarCanvas key={vrmUrl} url={vrmUrl} mouthOpen={mouthOpen} onLoaded={setAvatarName} />
+            </CanvasErrorBoundary>
           </div>
           <div className="avatar-meta">
             <div>
