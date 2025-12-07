@@ -410,11 +410,14 @@ function App() {
   const wsRef = useRef<WebSocket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const ttsBuffersRef = useRef<Uint8Array[]>([])
+  const ttsFormatRef = useRef<{ sampleRate: number; channels: number }>({ sampleRate: 16000, channels: 1 })
+  const micBuffersRef = useRef<Uint8Array[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null)
   const mouthRafRef = useRef<number | null>(null)
   const currentTurnIdRef = useRef<string | null>(null)
+  const messageQueueRef = useRef<Promise<void>>(Promise.resolve())
 
   const micSupported = useMemo(() => {
     if (typeof navigator === 'undefined') return false
@@ -542,7 +545,10 @@ function App() {
     setAudioMouth(0)
     setTtsBytes(0)
     ttsBuffersRef.current = []
+    micBuffersRef.current = []
     const ws = new WebSocket(wsUrl)
+    ws.binaryType = 'arraybuffer'
+    messageQueueRef.current = Promise.resolve()
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -552,6 +558,7 @@ function App() {
     ws.onclose = (event) => {
       setState('disconnected')
       currentTurnIdRef.current = null
+      messageQueueRef.current = Promise.resolve()
       appendLog(`closed (${event.code}): ${event.reason || 'no reason'}`)
       stopMic()
       stopAudioMeter()
@@ -560,7 +567,12 @@ function App() {
       appendLog('websocket error')
     }
     ws.onmessage = (event) => {
-      void handleMessage(event.data)
+      // メッセージを直列化し、音声バイナリが順序通りに溜まるようにする
+      messageQueueRef.current = messageQueueRef.current
+        .then(() => handleMessage(event.data))
+        .catch((err) => {
+          appendLog(`message handler error: ${err instanceof Error ? err.message : String(err)}`)
+        })
     }
   }
 
@@ -602,34 +614,56 @@ function App() {
   const startMic = async () => {
     if (micActive || state !== 'connected') return
     try {
+      // 再生中の TTS を止め、録音をクリーンに開始する
+      stopAudioMeter()
+      if (audioSourceRef.current) {
+        try {
+          audioSourceRef.current.stop()
+        } catch {
+          // noop
+        }
+      }
+      micBuffersRef.current = []
       const stream = await requestMicStream()
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm'
       const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
       recorder.ondataavailable = async (event) => {
-        if (!wsRef.current || state !== 'connected') return
         if (event.data && event.data.size > 0) {
           const buffer = await event.data.arrayBuffer()
-          wsRef.current.send(buffer)
+          micBuffersRef.current.push(new Uint8Array(buffer))
         }
       }
       recorder.start(100)
       mediaRecorderRef.current = recorder
       setMicActive(true)
-      appendLog('mic started')
+      appendLog('mic started (one-shot)')
     } catch (err) {
       appendLog(`mic error: ${(err as Error).message}`)
     }
   }
 
-  const stopMic = () => {
+  const stopMic = (options?: { flush?: boolean; reason?: string }) => {
+    const { flush = false, reason } = options ?? {}
+    const wasActive = Boolean(mediaRecorderRef.current)
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop()
       mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop())
       mediaRecorderRef.current = null
       setMicActive(false)
-      appendLog('mic stopped')
+    }
+    if (flush && wsRef.current && state === 'connected') {
+      const chunks = micBuffersRef.current
+      if (chunks.length) {
+        const payload = concatUint8Arrays(chunks)
+        wsRef.current.send(payload.buffer)
+      }
+      micBuffersRef.current = []
+      wsRef.current.send(JSON.stringify({ type: 'flush' }))
+    }
+    if (wasActive || flush) {
+      appendLog(`mic stopped${reason ? ` (${reason})` : ''}${flush ? ' + flush' : ''}`)
     }
   }
 
@@ -661,8 +695,13 @@ function App() {
   const playTtsBuffer = async () => {
     const buffers = ttsBuffersRef.current
     if (!buffers.length) return
-    const blob = new Blob(buffers.map((b) => new Uint8Array(b)), { type: 'audio/ogg; codecs=opus' })
     ttsBuffersRef.current = []
+    const combined = concatUint8Arrays(buffers)
+    const detectedMime = detectAudioMime(combined)
+    const { sampleRate, channels } = ttsFormatRef.current
+    const audioBytes = detectedMime ? combined : pcmToWav(combined, sampleRate, channels)
+    const mimeType = detectedMime ?? 'audio/wav'
+    const blob = new Blob([audioBytes], { type: mimeType })
     try {
       const ctx = await ensureAudioContext()
       const arrayBuffer = await blob.arrayBuffer()
@@ -716,6 +755,7 @@ function App() {
           status: 'responding',
           startedAt: prev?.startedAt ?? Date.now(),
         }))
+        stopMic({ reason: 'final_transcript' })
         if (payload.latency_ms?.stt) {
           setLatency((prev) => ({ ...prev, stt: payload.latency_ms.stt }))
         }
@@ -752,11 +792,17 @@ function App() {
         }
         break
       }
-      case 'tts_start':
+      case 'tts_start': {
         setTtsBytes(0)
         ttsBuffersRef.current = []
+        const sampleRate =
+          typeof payload.sample_rate === 'number' && payload.sample_rate > 0 ? payload.sample_rate : 16000
+        const channels =
+          typeof payload.channels === 'number' && payload.channels > 0 ? payload.channels : 1
+        ttsFormatRef.current = { sampleRate, channels }
         appendLog(`tts_start turn=${payload.turn_id}`)
         break
+      }
       case 'tts_end':
         appendLog(`tts_end turn=${payload.turn_id}`)
         void playTtsBuffer()
@@ -816,6 +862,67 @@ function App() {
       buffer[i] = binary.charCodeAt(i)
     }
     return new Blob([buffer], { type: mimeType })
+  }
+
+  const detectAudioMime = (data: Uint8Array): string | null => {
+    if (data.length < 12) return null
+    if (data[0] === 0x4f && data[1] === 0x67 && data[2] === 0x67 && data[3] === 0x53) return 'audio/ogg'
+    if (
+      data[0] === 0x52 &&
+      data[1] === 0x49 &&
+      data[2] === 0x46 &&
+      data[3] === 0x46 &&
+      data[8] === 0x57 &&
+      data[9] === 0x41 &&
+      data[10] === 0x56 &&
+      data[11] === 0x45
+    ) {
+      return 'audio/wav'
+    }
+    if (data[0] === 0x1a && data[1] === 0x45 && data[2] === 0xdf && data[3] === 0xa3) return 'audio/webm'
+    return null
+  }
+
+  const pcmToWav = (pcm: Uint8Array, sampleRate: number, channels = 1) => {
+    const sampleWidth = 2
+    const blockAlign = channels * sampleWidth
+    const byteRate = sampleRate * blockAlign
+    const buffer = new ArrayBuffer(44 + pcm.byteLength)
+    const view = new DataView(buffer)
+
+    const writeString = (offset: number, value: string) => {
+      for (let i = 0; i < value.length; i += 1) {
+        view.setUint8(offset + i, value.charCodeAt(i))
+      }
+    }
+
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + pcm.byteLength, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, channels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, byteRate, true)
+    view.setUint16(32, blockAlign, true)
+    view.setUint16(34, sampleWidth * 8, true)
+    writeString(36, 'data')
+    view.setUint32(40, pcm.byteLength, true)
+
+    new Uint8Array(buffer, 44).set(pcm)
+    return new Uint8Array(buffer)
+  }
+
+  const concatUint8Arrays = (chunks: Uint8Array[]) => {
+    const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+    const result = new Uint8Array(total)
+    let offset = 0
+    chunks.forEach((chunk) => {
+      result.set(chunk, offset)
+      offset += chunk.byteLength
+    })
+    return result
   }
 
   const runSttCheck = async () => {
@@ -1133,10 +1240,10 @@ function App() {
             Resume
           </button>
           <button onClick={startMic} disabled={state !== 'connected' || micActive || !micSupported}>
-            Start Mic
+            録音開始
           </button>
-          <button onClick={stopMic} disabled={!micActive}>
-            Stop Mic
+          <button onClick={() => stopMic({ flush: true, reason: 'manual stop' })} disabled={!micActive}>
+            録音終了（送信）
           </button>
         </div>
         <div className="live-stats">

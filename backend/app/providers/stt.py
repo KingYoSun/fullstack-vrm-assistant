@@ -6,6 +6,7 @@ import httpx
 import websockets
 
 from app.core.providers import STTProviderConfig
+from app.utils.audio import detect_audio_mime, pcm_to_wav
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +32,37 @@ class STTClient:
         if not joined:
             return ""
 
+        normalized_audio, mime_type = self._normalize_audio(joined)
+
         if self.config.endpoint.startswith("ws"):
-            text = await self._transcribe_ws(joined)
+            text = await self._transcribe_ws(normalized_audio)
             if text:
                 return text
 
         if self.config.endpoint.startswith("http"):
-            text = await self._transcribe_http(joined)
+            text = await self._transcribe_http(normalized_audio, mime_type)
             if text:
                 return text
 
         return self._mock_transcript(len(joined))
 
-    async def _transcribe_http(self, audio_bytes: bytes) -> str:
+    def _normalize_audio(self, audio_bytes: bytes) -> tuple[bytes, str]:
+        mime_type = detect_audio_mime(audio_bytes)
+        if mime_type:
+            return audio_bytes, mime_type
+        sample_rate = self.config.target_sample_rate or 16000
+        wav_bytes = pcm_to_wav(audio_bytes, sample_rate)
+        return wav_bytes, "audio/wav"
+
+    @staticmethod
+    def _filename_for_mime(mime_type: str) -> str:
+        if "ogg" in mime_type:
+            return "audio.ogg"
+        if "webm" in mime_type:
+            return "audio.webm"
+        return "audio.wav"
+
+    async def _transcribe_http(self, audio_bytes: bytes, mime_type: str) -> str:
         try:
             params: dict[str, str] = {}
             if self.config.language:
@@ -54,7 +73,7 @@ class STTClient:
             data = {k: str(v) for k, v in params.items()}
 
             files = {
-                "file": ("audio.wav", audio_bytes, "audio/wav")
+                "file": (self._filename_for_mime(mime_type), audio_bytes, mime_type)
             }
 
             response = await self._http_client.post(

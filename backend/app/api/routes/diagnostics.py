@@ -1,6 +1,5 @@
 import base64
 import logging
-import struct
 import time
 from collections.abc import AsyncIterable
 
@@ -26,46 +25,10 @@ from app.schemas.diagnostics import (
     TtsDiagResponse,
 )
 from app.services.rag_service import RagService
+from app.utils.audio import detect_audio_mime, pcm_to_wav
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _detect_audio_mime(audio_bytes: bytes) -> str | None:
-    if not audio_bytes:
-        return None
-    if audio_bytes.startswith(b"OggS"):
-        return "audio/ogg"
-    if audio_bytes.startswith(b"RIFF") and audio_bytes[8:12] == b"WAVE":
-        return "audio/wav"
-    if audio_bytes.startswith(b"\x1a\x45\xdf\xa3"):
-        return "audio/webm"
-    return None
-
-
-def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int) -> bytes:
-    byte_rate = sample_rate * 2
-    block_align = 2
-    bits_per_sample = 16
-    data_size = len(pcm_bytes)
-    riff_size = 36 + data_size
-    header = struct.pack(
-        "<4sI4s4sIHHIIHH4sI",
-        b"RIFF",
-        riff_size,
-        b"WAVE",
-        b"fmt ",
-        16,
-        1,
-        1,
-        sample_rate,
-        byte_rate,
-        block_align,
-        bits_per_sample,
-        b"data",
-        data_size,
-    )
-    return header + pcm_bytes
 
 
 def _build_llm_messages(prompt: str, context: str | None) -> list[ChatMessage]:
@@ -163,9 +126,9 @@ async def diagnose_tts(
         raise HTTPException(status_code=502, detail="tts returned no audio.")
 
     audio_bytes = b"".join(chunks)
-    mime_type = _detect_audio_mime(audio_bytes)
+    mime_type = detect_audio_mime(audio_bytes)
     if mime_type is None:
-        audio_bytes = _pcm_to_wav(audio_bytes, providers.tts.sample_rate)
+        audio_bytes = pcm_to_wav(audio_bytes, providers.tts.sample_rate)
         mime_type = "audio/wav"
 
     audio_base64 = base64.b64encode(audio_bytes).decode("ascii")
