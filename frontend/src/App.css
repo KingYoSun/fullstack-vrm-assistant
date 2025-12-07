@@ -152,6 +152,12 @@ h4 {
   gap: 12px;
 }
 
+.avatar-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .controls .ws-url {
   font-size: 13px;
   color: #475569;
