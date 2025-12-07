@@ -51,11 +51,16 @@ class STTClient:
             if self.config.target_sample_rate:
                 params["sample_rate"] = str(self.config.target_sample_rate)
 
+            data = {k: str(v) for k, v in params.items()}
+
+            files = {
+                "file": ("audio.wav", audio_bytes, "audio/wav")
+            }
+
             response = await self._http_client.post(
                 self.config.endpoint,
-                content=audio_bytes,
-                params=params,
-                headers={"Content-Type": "application/octet-stream"},
+                files=files,
+                data=data,
                 timeout=self.config.timeout_sec,
             )
             response.raise_for_status()
