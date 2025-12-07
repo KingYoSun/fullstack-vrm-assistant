@@ -110,7 +110,7 @@ services:
     command: ["sh", "-c", "pnpm dev --host --port ${FRONTEND_PORT:-5173}"]
     volumes:
       - ./frontend:/workspace/frontend
-      - frontend_node_modules:/workspace/frontend/node_modules
+      - ./frontend/node_modules:/workspace/frontend/node_modules
     <<: *common-env
     ports:
       - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
