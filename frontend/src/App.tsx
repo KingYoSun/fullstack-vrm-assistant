@@ -1206,7 +1206,7 @@ function App() {
               <label className="inline-label">テキスト</label>
               <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} rows={3} />
               <label className="inline-label">Voice（任意）</label>
-              <input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} placeholder="provider 側の voice id" />
+              <input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} placeholder="provider 側の音声 reference id" />
               <div className="diag-actions">
                 <button onClick={runTtsCheck} disabled={ttsLoading}>
                   {ttsLoading ? 'Running...' : 'TTS 実行'}

@@ -38,7 +38,7 @@ class TTSClient:
         url = self.config.endpoint.rstrip("/")
         payload = {
             "text": text,
-            "voice": voice or self.config.default_voice,
+            "reference_id": voice or self.config.default_voice,
             "language": self.config.language,
             "output_format": self.config.output_format,
             "sample_rate": self.sample_rate,
