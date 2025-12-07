@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_db_session, get_provider_registry, get_rag_service
 from app.db.models import ConversationLog
-from app.providers.llm import ChatMessage
 from app.providers.registry import ProviderRegistry
+from app.repositories.characters import CharacterRepository
+from app.repositories.system_prompts import SystemPromptRepository
 from app.schemas.diagnostics import (
     DbDiagResponse,
     EmbeddingDiagRequest,
@@ -25,23 +26,25 @@ from app.schemas.diagnostics import (
     TtsDiagResponse,
 )
 from app.services.rag_service import RagService
+from app.services.prompt_builder import (
+    MAX_ASSISTANT_CHARACTERS,
+    build_chat_messages,
+    clamp_response_length,
+)
 from app.utils.audio import detect_audio_mime, pcm_to_wav
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _build_llm_messages(prompt: str, context: str | None) -> list[ChatMessage]:
-    system_prompt = (
-        "You are a helpful VRM voice assistant. "
-        "Use the provided context when it is relevant. "
-        "If the context is empty, respond concisely."
-    )
-    messages = [ChatMessage(role="system", content=system_prompt)]
-    if context:
-        messages.append(ChatMessage(role="system", content=f"Context:\n{context}"))
-    messages.append(ChatMessage(role="user", content=prompt))
-    return messages
+async def _resolve_character(session: AsyncSession, character_id: int | None):
+    if character_id is None:
+        return None
+    repo = CharacterRepository(session)
+    character = await repo.get(character_id)
+    if character is None:
+        raise HTTPException(status_code=404, detail="character not found")
+    return character
 
 
 @router.post("/diagnostics/stt", response_model=SttDiagResponse)
@@ -73,23 +76,33 @@ async def diagnose_stt(
 async def diagnose_llm(
     body: LlmDiagRequest,
     providers: ProviderRegistry = Depends(get_provider_registry),
+    session: AsyncSession = Depends(get_db_session),
 ) -> LlmDiagResponse:
     prompt = body.prompt.strip()
-    context = body.context.strip() if body.context else None
+    context = body.context.strip() if body.context else ""
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt is empty.")
 
-    messages = _build_llm_messages(prompt, context)
+    character = await _resolve_character(session, body.character_id)
+    system_prompt_repo = SystemPromptRepository(session)
+    system_prompt_record = await system_prompt_repo.get_active() or await system_prompt_repo.get_latest()
+    system_prompt_text = system_prompt_record.content if system_prompt_record else None
+    messages = build_chat_messages(prompt, context, character, system_prompt_text)
     fallback_before = providers.llm.fallback_count
     tokens: list[str] = []
     start = time.monotonic()
     async for token in providers.llm.stream_chat(messages):
+        if not token:
+            continue
+        candidate = "".join(tokens) + token
+        if len(candidate.strip()) > MAX_ASSISTANT_CHARACTERS:
+            break
         tokens.append(token)
     latency_ms = (time.monotonic() - start) * 1000
     fallback_used = providers.llm.fallback_count > fallback_before
 
     return LlmDiagResponse(
-        assistant_text="".join(tokens).strip(),
+        assistant_text=clamp_response_length("".join(tokens)),
         tokens=tokens,
         latency_ms=round(latency_ms, 1),
         provider=providers.config.llm.provider,

@@ -12,6 +12,7 @@ class SttDiagResponse(BaseModel):
 class LlmDiagRequest(BaseModel):
     prompt: str = Field(min_length=1)
     context: str | None = None
+    character_id: int | None = Field(default=None, ge=1)
 
 
 class LlmDiagResponse(BaseModel):

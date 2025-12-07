@@ -11,8 +11,13 @@ from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from app.providers.llm import ChatMessage
+from app.db.models import CharacterProfile
 from app.providers.registry import ProviderRegistry
+from app.services.prompt_builder import (
+    MAX_ASSISTANT_CHARACTERS,
+    build_chat_messages,
+    clamp_response_length,
+)
 from app.services.rag_service import RagService
 
 logger = logging.getLogger(__name__)
@@ -37,6 +42,9 @@ class WebSocketSession:
         silence_flush_ms: int = 600,
         input_max_chunks: int = 150,
         tts_max_chunks: int = 50,
+        character: CharacterProfile | None = None,
+        max_assistant_chars: int = MAX_ASSISTANT_CHARACTERS,
+        system_prompt: str | None = None,
     ):
         self.session_id = session_id
         self.websocket = websocket
@@ -63,6 +71,9 @@ class WebSocketSession:
         self._consecutive_silence_ms = 0
         self._ffmpeg_available = shutil.which("ffmpeg") is not None
         self.request_id = request_id or uuid4().hex
+        self._character = character
+        self._max_assistant_chars = max_assistant_chars
+        self._system_prompt = system_prompt
 
     async def run(self) -> None:
         await self.websocket.accept()
@@ -268,11 +279,18 @@ class WebSocketSession:
         try:
             docs = await self.rag_service.search(user_text)
             context_text = self.rag_service.context_as_text(docs)
-            messages = self._build_messages(user_text, context_text)
+            messages = build_chat_messages(
+                user_text, context_text, self._character, self._system_prompt
+            )
 
             tokens: list[str] = []
             llm_start = time.monotonic()
             async for token in self.providers.llm.stream_chat(messages):
+                if not token:
+                    continue
+                candidate = "".join(tokens) + token
+                if len(candidate.strip()) > self._max_assistant_chars:
+                    break
                 tokens.append(token)
                 await self.websocket.send_json(
                     {
@@ -283,7 +301,9 @@ class WebSocketSession:
                     }
                 )
 
-            assistant_text = "".join(tokens).strip() or self._fallback_text(user_text)
+            assistant_text = clamp_response_length("".join(tokens)) or self._fallback_text(
+                user_text
+            )
             llm_latency_ms = (time.monotonic() - llm_start) * 1000
         except Exception as exc:  # noqa: BLE001
             fallback_used = True
@@ -416,20 +436,6 @@ class WebSocketSession:
                 "timestamp": now,
             }
         )
-
-    def _build_messages(self, user_text: str, context_text: str) -> list[ChatMessage]:
-        system_prompt = (
-            "You are a helpful VRM voice assistant. "
-            "Use the provided context when it is relevant. "
-            "If the context is empty, respond concisely."
-        )
-        messages: list[ChatMessage] = [
-            ChatMessage(role="system", content=system_prompt),
-        ]
-        if context_text:
-            messages.append(ChatMessage(role="system", content=f"Context:\n{context_text}"))
-        messages.append(ChatMessage(role="user", content=user_text))
-        return messages
 
     def _fallback_text(self, user_text: str) -> str:
         if user_text.strip():

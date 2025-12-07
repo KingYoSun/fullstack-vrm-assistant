@@ -10,3 +10,6 @@ class TextChatRequest(BaseModel):
     top_k: int | None = Field(
         default=None, description="Override for RAG top_k. Defaults to provider config."
     )
+    character_id: int | None = Field(
+        default=None, ge=1, description="Optional character profile id for persona prompt."
+    )

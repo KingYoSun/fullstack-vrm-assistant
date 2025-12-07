@@ -5,9 +5,15 @@ from uuid import uuid4
 
 from fastapi import HTTPException, status
 
-from app.providers.llm import ChatMessage, LLMClient
+from app.db.models import CharacterProfile
+from app.providers.llm import LLMClient
 from app.repositories.conversation_logs import ConversationLogRepository
 from app.services.rag_service import RagService
+from app.services.prompt_builder import (
+    MAX_ASSISTANT_CHARACTERS,
+    build_chat_messages,
+    clamp_response_length,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +30,9 @@ class TextChatService:
         repo: ConversationLogRepository | None,
         top_k: int | None = None,
         turn_id: str | None = None,
+        character: CharacterProfile | None = None,
+        max_chars: int = MAX_ASSISTANT_CHARACTERS,
+        system_prompt: str | None = None,
     ) -> AsyncIterator[dict]:
         if not user_text.strip():
             raise HTTPException(
@@ -35,7 +44,7 @@ class TextChatService:
         rag_latency_ms = (time.monotonic() - rag_start) * 1000
         context_text = self._rag_service.context_as_text(docs)
         turn_identifier = turn_id or uuid4().hex
-        messages = self._build_messages(user_text, context_text)
+        messages = build_chat_messages(user_text, context_text, character, system_prompt)
 
         yield {
             "event": "context",
@@ -49,6 +58,11 @@ class TextChatService:
         assistant_tokens: list[str] = []
         llm_start = time.monotonic()
         async for token in self._llm_client.stream_chat(messages):
+            if not token:
+                continue
+            candidate = "".join(assistant_tokens) + token
+            if len(candidate.strip()) > max_chars:
+                break
             assistant_tokens.append(token)
             yield {
                 "event": "token",
@@ -59,7 +73,7 @@ class TextChatService:
                 },
             }
 
-        assistant_text = "".join(assistant_tokens).strip()
+        assistant_text = clamp_response_length("".join(assistant_tokens))
         llm_latency_ms = (time.monotonic() - llm_start) * 1000
         if repo:
             await repo.create(
@@ -94,17 +108,3 @@ class TextChatService:
                 "event": "text_chat_done",
             },
         )
-
-    def _build_messages(self, user_text: str, context_text: str) -> list[ChatMessage]:
-        system_prompt = (
-            "You are a helpful VRM voice assistant. "
-            "Use the provided context when it is relevant. "
-            "If the context is empty, respond concisely."
-        )
-        messages: list[ChatMessage] = [
-            ChatMessage(role="system", content=system_prompt),
-        ]
-        if context_text:
-            messages.append(ChatMessage(role="system", content=f"Context:\n{context_text}"))
-        messages.append(ChatMessage(role="user", content=user_text))
-        return messages

@@ -77,6 +77,27 @@ type RagDiagResult = {
 
 type DbDiagResult = { status: string; detail?: string | null; conversationLogCount?: number | null }
 
+type CharacterProfile = {
+  id: number
+  name: string
+  persona: string
+  speakingStyle?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+type SystemPrompt = {
+  id: number
+  title: string
+  content: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+const DEFAULT_SYSTEM_PROMPT =
+  'あなたは音声対応の VRM アシスタントです。ユーザーと自然な会話をするように口語で話し、本文は150文字以内にまとめてください。要点だけを端的に返し、一息で読み上げられる長さを維持します。提供されたコンテキストは関連する部分だけ取り込み、無い場合は簡潔に答えてください。'
+
 type LegacyGetUserMedia = (
   constraints: MediaStreamConstraints,
   successCallback: (stream: MediaStream) => void,
@@ -407,6 +428,29 @@ function App() {
   const [dbStatus, setDbStatus] = useState<DbDiagResult | null>(null)
   const [dbError, setDbError] = useState<string | null>(null)
   const [dbLoading, setDbLoading] = useState(false)
+  const [characters, setCharacters] = useState<CharacterProfile[]>([])
+  const [activeCharacterId, setActiveCharacterId] = useState<number | null>(null)
+  const [characterForm, setCharacterForm] = useState({
+    name: 'デフォルトキャラクター',
+    persona: '',
+    speakingStyle: '',
+  })
+  const [characterEditingId, setCharacterEditingId] = useState<number | null>(null)
+  const [characterError, setCharacterError] = useState<string | null>(null)
+  const [characterLoading, setCharacterLoading] = useState(false)
+  const [characterSaving, setCharacterSaving] = useState(false)
+  const [characterDeletingId, setCharacterDeletingId] = useState<number | null>(null)
+  const [systemPrompts, setSystemPrompts] = useState<SystemPrompt[]>([])
+  const [systemPromptEditingId, setSystemPromptEditingId] = useState<number | null>(null)
+  const [systemPromptForm, setSystemPromptForm] = useState({
+    title: 'デフォルトプロンプト',
+    content: DEFAULT_SYSTEM_PROMPT,
+    isActive: true,
+  })
+  const [systemPromptError, setSystemPromptError] = useState<string | null>(null)
+  const [systemPromptLoading, setSystemPromptLoading] = useState(false)
+  const [systemPromptSaving, setSystemPromptSaving] = useState(false)
+  const [systemPromptDeletingId, setSystemPromptDeletingId] = useState<number | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const ttsBuffersRef = useRef<Uint8Array[]>([])
@@ -438,8 +482,9 @@ function App() {
 
   const wsUrl = useMemo(() => {
     const normalized = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-    return `${normalized}/${sessionId}`
-  }, [baseUrl, sessionId])
+    const query = activeCharacterId ? `?character_id=${activeCharacterId}` : ''
+    return `${normalized}/${sessionId}${query}`
+  }, [activeCharacterId, baseUrl, sessionId])
 
   const buildApiUrl = (path: string) => {
     const normalized = path.startsWith('/') ? path : `/${path}`
@@ -500,6 +545,346 @@ function App() {
       return next.slice(-80)
     })
   }
+
+  const mapCharacter = (data: {
+    id: number
+    name: string
+    persona: string
+    speaking_style?: string | null
+    created_at: string
+    updated_at: string
+  }): CharacterProfile => ({
+    id: data.id,
+    name: data.name,
+    persona: data.persona,
+    speakingStyle: data.speaking_style ?? '',
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  })
+
+  const mapSystemPrompt = (data: {
+    id: number
+    title: string
+    content: string
+    is_active: boolean
+    created_at: string
+    updated_at: string
+  }): SystemPrompt => ({
+    id: data.id,
+    title: data.title,
+    content: data.content,
+    isActive: data.is_active,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  })
+
+  const resetCharacterForm = () => {
+    setCharacterError(null)
+    setCharacterEditingId(null)
+    setCharacterForm({
+      name: 'デフォルトキャラクター',
+      persona: '',
+      speakingStyle: '',
+    })
+  }
+
+  const resetSystemPromptForm = () => {
+    setSystemPromptError(null)
+    setSystemPromptEditingId(null)
+    setSystemPromptForm({
+      title: 'デフォルトプロンプト',
+      content: DEFAULT_SYSTEM_PROMPT,
+      isActive: true,
+    })
+  }
+
+  const loadCharacters = async () => {
+    setCharacterError(null)
+    setCharacterLoading(true)
+    try {
+      const data = await requestJson<
+        {
+          id: number
+          name: string
+          persona: string
+          speaking_style?: string | null
+          created_at: string
+          updated_at: string
+        }[]
+      >('/characters', { method: 'GET' })
+      const mapped = data.map(mapCharacter)
+      setCharacters(mapped)
+      if (!mapped.length) {
+        setActiveCharacterId(null)
+        setCharacterEditingId(null)
+        resetCharacterForm()
+      } else if (activeCharacterId && !mapped.some((c) => c.id === activeCharacterId)) {
+        setActiveCharacterId(mapped[0]?.id ?? null)
+      } else if (!activeCharacterId) {
+        setActiveCharacterId(mapped[0].id)
+      }
+    } catch (err) {
+      const message = parseError(err)
+      setCharacterError(message)
+      appendLog(`characters: load failed (${message})`)
+    } finally {
+      setCharacterLoading(false)
+    }
+  }
+
+  const loadSystemPrompts = async () => {
+    setSystemPromptError(null)
+    setSystemPromptLoading(true)
+    try {
+      const data = await requestJson<
+        {
+          id: number
+          title: string
+          content: string
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }[]
+      >('/system-prompts', { method: 'GET' })
+      const mapped = data.map(mapSystemPrompt).sort((a, b) => a.id - b.id)
+      setSystemPrompts(mapped)
+      if (!mapped.length) {
+        resetSystemPromptForm()
+      } else if (systemPromptEditingId && !mapped.some((p) => p.id === systemPromptEditingId)) {
+        resetSystemPromptForm()
+      }
+    } catch (err) {
+      const message = parseError(err)
+      setSystemPromptError(message)
+      appendLog(`system prompts: load failed (${message})`)
+    } finally {
+      setSystemPromptLoading(false)
+    }
+  }
+
+  const handleSelectCharacter = (id: number | null) => {
+    setCharacterError(null)
+    setActiveCharacterId(id)
+    if (id === null) {
+      setCharacterEditingId(null)
+      appendLog('characters: デフォルトプロンプトに戻しました')
+    } else {
+      appendLog(`characters: 適用 id=${id}`)
+    }
+  }
+
+  const startEditCharacter = (profile: CharacterProfile) => {
+    setCharacterError(null)
+    setCharacterEditingId(profile.id)
+    setCharacterForm({
+      name: profile.name,
+      persona: profile.persona,
+      speakingStyle: profile.speakingStyle ?? '',
+    })
+  }
+
+  const startEditSystemPrompt = (prompt: SystemPrompt) => {
+    setSystemPromptError(null)
+    setSystemPromptEditingId(prompt.id)
+    setSystemPromptForm({
+      title: prompt.title,
+      content: prompt.content,
+      isActive: prompt.isActive,
+    })
+  }
+
+  const saveSystemPrompt = async () => {
+    setSystemPromptError(null)
+    const title = systemPromptForm.title.trim()
+    const content = systemPromptForm.content.trim()
+    if (!title || !content) {
+      setSystemPromptError('タイトルと本文を入力してください')
+      return
+    }
+    setSystemPromptSaving(true)
+    try {
+      const payload = {
+        title,
+        content,
+        is_active: systemPromptForm.isActive,
+      }
+      const path = systemPromptEditingId ? `/system-prompts/${systemPromptEditingId}` : '/system-prompts'
+      const method = systemPromptEditingId ? 'PUT' : 'POST'
+      const data = await requestJson<{
+        id: number
+        title: string
+        content: string
+        is_active: boolean
+        created_at: string
+        updated_at: string
+      }>(path, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const saved = mapSystemPrompt(data)
+      setSystemPrompts((prev) => {
+        let next = prev.filter((p) => p.id !== saved.id)
+        if (saved.isActive) {
+          next = next.map((p) => ({ ...p, isActive: false }))
+        }
+        return [...next, saved].sort((a, b) => a.id - b.id)
+      })
+      setSystemPromptEditingId(saved.id)
+      setSystemPromptForm({
+        title: saved.title,
+        content: saved.content,
+        isActive: saved.isActive,
+      })
+      appendLog(`system prompts: saved ${saved.title} (id=${saved.id})${saved.isActive ? ' [active]' : ''}`)
+    } catch (err) {
+      const message = parseError(err)
+      setSystemPromptError(message)
+      appendLog(`system prompts: save failed (${message})`)
+    } finally {
+      setSystemPromptSaving(false)
+    }
+  }
+
+  const deleteSystemPrompt = async (id: number) => {
+    if (typeof window !== 'undefined' && !window.confirm('このシステムプロンプトを削除しますか？')) {
+      return
+    }
+    setSystemPromptError(null)
+    setSystemPromptDeletingId(id)
+    try {
+      const response = await fetch(buildApiUrl(`/system-prompts/${id}`), { method: 'DELETE' })
+      const text = await response.text()
+      if (!response.ok) {
+        const message = text || `${response.status} ${response.statusText}`
+        throw new Error(message)
+      }
+      setSystemPrompts((prev) => prev.filter((p) => p.id !== id))
+      if (systemPromptEditingId === id) {
+        resetSystemPromptForm()
+      }
+      appendLog(`system prompts: deleted id=${id}`)
+      void loadSystemPrompts()
+    } catch (err) {
+      const message = parseError(err)
+      setSystemPromptError(message)
+      appendLog(`system prompts: delete failed (${message})`)
+    } finally {
+      setSystemPromptDeletingId(null)
+    }
+  }
+
+  const setActiveSystemPrompt = async (id: number) => {
+    setSystemPromptError(null)
+    try {
+      await requestJson(`/system-prompts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: true }),
+      })
+      appendLog(`system prompts: set active id=${id}`)
+      await loadSystemPrompts()
+    } catch (err) {
+      const message = parseError(err)
+      setSystemPromptError(message)
+      appendLog(`system prompts: activate failed (${message})`)
+    }
+  }
+
+  const saveCharacter = async () => {
+    setCharacterError(null)
+    const name = characterForm.name.trim()
+    const persona = characterForm.persona.trim()
+    const speakingStyle = characterForm.speakingStyle.trim()
+    if (!name || !persona) {
+      setCharacterError('名前とキャラクター設定を入力してください')
+      return
+    }
+    setCharacterSaving(true)
+    try {
+      const payload = {
+        name,
+        persona,
+        speaking_style: speakingStyle || undefined,
+      }
+      const path = characterEditingId ? `/characters/${characterEditingId}` : '/characters'
+      const method = characterEditingId ? 'PUT' : 'POST'
+      const data = await requestJson<{
+        id: number
+        name: string
+        persona: string
+        speaking_style?: string | null
+        created_at: string
+        updated_at: string
+      }>(path, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const saved = mapCharacter(data)
+      setCharacters((prev) => {
+        const next = prev.filter((c) => c.id !== saved.id)
+        return [...next, saved].sort((a, b) => a.id - b.id)
+      })
+      setActiveCharacterId(saved.id)
+      setCharacterEditingId(saved.id)
+      setCharacterForm({
+        name: saved.name,
+        persona: saved.persona,
+        speakingStyle: saved.speakingStyle ?? '',
+      })
+      appendLog(`characters: saved ${saved.name} (id=${saved.id})`)
+    } catch (err) {
+      const message = parseError(err)
+      setCharacterError(message)
+      appendLog(`characters: save failed (${message})`)
+    } finally {
+      setCharacterSaving(false)
+    }
+  }
+
+  const deleteCharacter = async (id: number) => {
+    if (typeof window !== 'undefined' && !window.confirm('このキャラクターを削除しますか？')) {
+      return
+    }
+    setCharacterError(null)
+    setCharacterDeletingId(id)
+    try {
+      const response = await fetch(buildApiUrl(`/characters/${id}`), { method: 'DELETE' })
+      const text = await response.text()
+      if (!response.ok) {
+        const message = text || `${response.status} ${response.statusText}`
+        throw new Error(message)
+      }
+      setCharacters((prev) => {
+        const next = prev.filter((c) => c.id !== id)
+        if (activeCharacterId === id) {
+          setActiveCharacterId(next[0]?.id ?? null)
+        }
+        return next
+      })
+      if (characterEditingId === id) {
+        resetCharacterForm()
+      }
+      appendLog(`characters: deleted id=${id}`)
+    } catch (err) {
+      const message = parseError(err)
+      setCharacterError(message)
+      appendLog(`characters: delete failed (${message})`)
+    } finally {
+      setCharacterDeletingId(null)
+    }
+  }
+
+  useEffect(() => {
+    setCharacters([])
+    setActiveCharacterId(null)
+    resetCharacterForm()
+    setSystemPrompts([])
+    resetSystemPromptForm()
+    void loadCharacters()
+    void loadSystemPrompts()
+  }, [apiBase])
 
   useEffect(() => {
     if (!micSupported) {
@@ -979,7 +1364,11 @@ function App() {
       }>('/diagnostics/llm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, context: context || undefined }),
+        body: JSON.stringify({
+          prompt,
+          context: context || undefined,
+          character_id: activeCharacterId ?? undefined,
+        }),
       })
       setLlmResult({
         assistantText: data.assistant_text,
@@ -1262,6 +1651,208 @@ function App() {
           <div className="stat-block">
             <div className="eyebrow">TTS bytes</div>
             <p className="mono">{ttsBytes}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel persona">
+        <div className="section-head persona-head">
+          <div>
+            <div className="eyebrow">キャラクター / プロンプト</div>
+            <h3>Conversation Persona</h3>
+            <p className="sub small">
+              会話調で150字以内に収まるようにシステムプロンプトを固定しています。キャラクターを登録すると自動で反映されます。
+            </p>
+          </div>
+          <div className="pill pill-soft">150文字以内</div>
+        </div>
+        <div className="persona-grid">
+          <div className="persona-list">
+            <div className={`persona-card ${activeCharacterId === null ? 'active' : ''}`}>
+              <div className="card-head">
+                <div>
+                  <div className="eyebrow">デフォルト</div>
+                  <h4>キャラクターなし</h4>
+                </div>
+                <button className="ghost" onClick={() => handleSelectCharacter(null)} disabled={activeCharacterId === null}>
+                  適用
+                </button>
+              </div>
+              <p className="mono small persona-text">
+                会話調で150字以内の短い返答。コンテキストがあれば要点だけ取り込みます。
+              </p>
+            </div>
+            {characterLoading ? <p className="hint">キャラクターを読み込み中...</p> : null}
+            {!characterLoading && characters.length === 0 ? (
+              <p className="hint">登録済みのキャラクターがありません。右のフォームから追加できます。</p>
+            ) : null}
+            {characters.map((character) => (
+              <div
+                key={character.id}
+                className={`persona-card ${activeCharacterId === character.id ? 'active' : ''}`}
+              >
+                <div className="card-head">
+                  <div>
+                    <div className="eyebrow">ID {character.id}</div>
+                    <h4>{character.name}</h4>
+                  </div>
+                  <div className="pill pill-soft">更新 {new Date(character.updatedAt).toLocaleDateString()}</div>
+                </div>
+                <p className="mono small persona-text">{character.persona}</p>
+                {character.speakingStyle ? (
+                  <p className="mono small persona-text faint">話し方: {character.speakingStyle}</p>
+                ) : null}
+                <div className="card-actions">
+                  <button
+                    onClick={() => handleSelectCharacter(character.id)}
+                    disabled={activeCharacterId === character.id}
+                  >
+                    このキャラを使う
+                  </button>
+                  <button onClick={() => startEditCharacter(character)} className="ghost">
+                    編集
+                  </button>
+                  <button
+                    onClick={() => deleteCharacter(character.id)}
+                    className="ghost danger"
+                    disabled={characterDeletingId === character.id}
+                  >
+                    {characterDeletingId === character.id ? '削除中...' : '削除'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="persona-form">
+            <div className="eyebrow">作成 / 更新</div>
+            <h4>{characterEditingId ? `編集: ${characterForm.name}` : '新規キャラクター'}</h4>
+            <div className="field">
+              <label>名前</label>
+              <input
+                value={characterForm.name}
+                onChange={(e) => setCharacterForm((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="例: 明るい秘書 / 落ち着いた案内役"
+              />
+            </div>
+            <div className="field">
+              <label>人物像・役割</label>
+              <textarea
+                value={characterForm.persona}
+                onChange={(e) => setCharacterForm((prev) => ({ ...prev, persona: e.target.value }))}
+                rows={3}
+                placeholder="例: 元気でテンポが良い。問いの意図を汲み、余計な枕詞は避ける。"
+              />
+            </div>
+            <div className="field">
+              <label>話し方のヒント（任意）</label>
+              <textarea
+                value={characterForm.speakingStyle}
+                onChange={(e) => setCharacterForm((prev) => ({ ...prev, speakingStyle: e.target.value }))}
+                rows={2}
+                placeholder="例: 言い切り口調。数字は具体的に、敬語は簡潔に。"
+              />
+            </div>
+            {characterError ? <p className="error-text">{characterError}</p> : null}
+            <div className="actions">
+              <button onClick={saveCharacter} disabled={characterSaving}>
+                {characterSaving ? '保存中...' : '保存して適用'}
+              </button>
+              <button onClick={resetCharacterForm} className="ghost">
+                新規作成にリセット
+              </button>
+            </div>
+            <p className="hint">
+              デフォルトプロンプト: 会話調で150字以内の応答を徹底。ここで登録した人物像と話し方はシステムプロンプトに追加されます。
+            </p>
+          </div>
+        </div>
+        <div className="prompt-grid">
+          <div>
+            <div className="eyebrow">システムプロンプト一覧</div>
+            {systemPromptLoading ? <p className="hint">読み込み中...</p> : null}
+            {!systemPromptLoading && systemPrompts.length === 0 ? (
+              <div className="persona-card">
+                <div className="card-head">
+                  <div>
+                    <div className="eyebrow">デフォルト</div>
+                    <h4>保存済みプロンプトなし</h4>
+                  </div>
+                </div>
+                <p className="mono small persona-text">{DEFAULT_SYSTEM_PROMPT}</p>
+              </div>
+            ) : null}
+            {systemPrompts.map((prompt) => (
+              <div key={prompt.id} className={`persona-card ${prompt.isActive ? 'active' : ''}`}>
+                <div className="card-head">
+                  <div>
+                    <div className="eyebrow">ID {prompt.id}</div>
+                    <h4>{prompt.title}</h4>
+                  </div>
+                  {prompt.isActive ? <span className="pill pill-soft">active</span> : null}
+                </div>
+                <p className="mono small persona-text">{prompt.content}</p>
+                <div className="card-actions">
+                  <button onClick={() => startEditSystemPrompt(prompt)} className="ghost">
+                    編集
+                  </button>
+                  {!prompt.isActive ? (
+                    <button onClick={() => setActiveSystemPrompt(prompt.id)}>
+                      これを適用
+                    </button>
+                  ) : null}
+                  <button
+                    onClick={() => deleteSystemPrompt(prompt.id)}
+                    className="ghost danger"
+                    disabled={systemPromptDeletingId === prompt.id}
+                  >
+                    {systemPromptDeletingId === prompt.id ? '削除中...' : '削除'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="persona-form">
+            <div className="eyebrow">システムプロンプトの作成 / 更新</div>
+            <h4>{systemPromptEditingId ? `編集: ${systemPromptForm.title}` : '新規プロンプト'}</h4>
+            <div className="field">
+              <label>タイトル</label>
+              <input
+                value={systemPromptForm.title}
+                onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, title: e.target.value }))}
+                placeholder="例: フレンドリー / 簡潔回答"
+              />
+            </div>
+            <div className="field">
+              <label>本文</label>
+              <textarea
+                value={systemPromptForm.content}
+                onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, content: e.target.value }))}
+                rows={4}
+                placeholder={DEFAULT_SYSTEM_PROMPT}
+              />
+            </div>
+            <div className="field inline-checkbox">
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={systemPromptForm.isActive}
+                  onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+                />
+                <span>これを適用状態にする</span>
+              </label>
+            </div>
+            {systemPromptError ? <p className="error-text">{systemPromptError}</p> : null}
+            <div className="actions">
+              <button onClick={saveSystemPrompt} disabled={systemPromptSaving}>
+                {systemPromptSaving ? '保存中...' : '保存'}
+              </button>
+              <button onClick={resetSystemPromptForm} className="ghost">
+                新規作成にリセット
+              </button>
+            </div>
+            <p className="hint">
+              保存済みのプロンプトを active にすると、LLM のシステムプロンプトとして利用されます。未設定時はデフォルト文を使用。
+            </p>
           </div>
         </div>
       </section>
