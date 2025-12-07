@@ -15,6 +15,7 @@ import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { Box3, PerspectiveCamera, Vector3 } from 'three'
 import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+import { FlaskConical, Mic, MicOff, Plug, PlugZap, ScrollText, Settings2, UserRound } from 'lucide-react'
 import './App.css'
 
 type WsState = 'disconnected' | 'connecting' | 'connected'
@@ -30,6 +31,20 @@ type ChatTurn = {
 }
 
 type LatencyMap = { stt?: number; llm?: number; tts?: number }
+
+type WsPayload = {
+  type?: string
+  text?: string
+  turn_id?: string
+  assistant_text?: string
+  token?: string
+  latency_ms?: { stt?: number; llm?: number; tts?: number }
+  sample_rate?: number
+  channels?: number
+  mouth_open?: number
+  recoverable?: boolean
+  message?: string
+}
 
 type SttDiagResult = {
   text: string
@@ -345,46 +360,6 @@ function AvatarCanvas({ url, mouthOpen, onLoaded, recenterKey }: AvatarCanvasPro
   )
 }
 
-type ChatLogProps = { turns: ChatTurn[]; partial: string }
-
-function ChatLog({ turns, partial }: ChatLogProps) {
-  if (!turns.length && !partial) {
-    return <div className="empty">まだメッセージがありません。マイクを開始してみてください。</div>
-  }
-
-  return (
-    <div className="chat-log">
-      {partial ? (
-        <div className="chat-card live">
-          <div className="chat-meta">
-            <span className="pill pill-user">User</span>
-            <span className="pill pill-live">listening</span>
-          </div>
-          <p className="chat-text mono">{partial}</p>
-        </div>
-      ) : null}
-      {turns
-        .slice()
-        .reverse()
-        .map((turn) => (
-          <div key={turn.id} className="chat-card">
-            <div className="chat-meta">
-              <span className="pill pill-user">User</span>
-              <span className={`pill status-${turn.status}`}>{turn.status}</span>
-            </div>
-            <p className="chat-text">{turn.userText || '（user textなし）'}</p>
-            <div className="divider" />
-            <div className="chat-meta">
-              <span className="pill pill-assistant">Assistant</span>
-              <span className="pill pill-soft">stream</span>
-            </div>
-            <p className="chat-text assistant">{turn.assistantText || '応答待ち...'}</p>
-          </div>
-        ))}
-    </div>
-  )
-}
-
 function App() {
   const [baseUrl, setBaseUrl] = useState(DEFAULT_WS_BASE_URL)
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL)
@@ -451,6 +426,12 @@ function App() {
   const [systemPromptLoading, setSystemPromptLoading] = useState(false)
   const [systemPromptSaving, setSystemPromptSaving] = useState(false)
   const [systemPromptDeletingId, setSystemPromptDeletingId] = useState<number | null>(null)
+  const [connectionDrawerOpen, setConnectionDrawerOpen] = useState(false)
+  const [personaDrawerOpen, setPersonaDrawerOpen] = useState(false)
+  const [diagnosticsDrawerOpen, setDiagnosticsDrawerOpen] = useState(false)
+  const [logsDrawerOpen, setLogsDrawerOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [showLatencyPanel, setShowLatencyPanel] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const ttsBuffersRef = useRef<Uint8Array[]>([])
@@ -1119,12 +1100,12 @@ function App() {
       source.onended = () => {
         stopAudioMeter(false)
       }
-    } catch (err) {
-      appendLog(`audio decode error: ${(err as Error).message}`)
-    }
+  } catch (err) {
+    appendLog(`audio decode error: ${(err as Error).message}`)
   }
+}
 
-  const handleJson = (payload: any) => {
+  const handleJson = (payload: WsPayload) => {
     const type = payload?.type
     switch (type) {
       case 'partial_transcript':
@@ -1141,8 +1122,9 @@ function App() {
           startedAt: prev?.startedAt ?? Date.now(),
         }))
         stopMic({ reason: 'final_transcript' })
-        if (payload.latency_ms?.stt) {
-          setLatency((prev) => ({ ...prev, stt: payload.latency_ms.stt }))
+        if (typeof payload.latency_ms?.stt === 'number') {
+          const sttLatency = payload.latency_ms.stt
+          setLatency((prev) => ({ ...prev, stt: sttLatency }))
         }
         break
       }
@@ -1168,11 +1150,12 @@ function App() {
           status: 'done',
           startedAt: prev?.startedAt ?? Date.now(),
         }))
-        if (payload.latency_ms) {
+        const latency = payload.latency_ms
+        if (latency) {
           setLatency((prev) => ({
             ...prev,
-            stt: payload.latency_ms.stt ?? prev.stt,
-            llm: payload.latency_ms.llm ?? prev.llm,
+            stt: latency.stt ?? prev.stt,
+            llm: latency.llm ?? prev.llm,
           }))
         }
         break
@@ -1188,17 +1171,19 @@ function App() {
         appendLog(`tts_start turn=${payload.turn_id}`)
         break
       }
-      case 'tts_end':
+      case 'tts_end': {
         appendLog(`tts_end turn=${payload.turn_id}`)
         void playTtsBuffer()
-        if (payload.latency_ms) {
+        const latency = payload.latency_ms
+        if (latency) {
           setLatency((prev) => ({
             ...prev,
-            llm: payload.latency_ms.llm ?? prev.llm,
-            tts: payload.latency_ms.tts ?? prev.tts,
+            llm: latency.llm ?? prev.llm,
+            tts: latency.tts ?? prev.tts,
           }))
         }
         break
+      }
       case 'avatar_event':
         if (typeof payload.mouth_open === 'number') {
           const openness = Math.min(1, Math.max(0, payload.mouth_open))
@@ -1553,642 +1538,719 @@ function App() {
   }
 
   return (
-    <div className="shell">
-      <header className="hero">
-        <div>
-          <div className="eyebrow">VRM Voice Assistant</div>
-          <h1>Phase 3 Frontend MVP</h1>
-          <p className="sub">
-            WebSocket ストリームと VRM をひとつの画面で確認できるデバッグ UI。音量ベースのリップシンクを含む。
-          </p>
-          <div className="hero-pills">
-            <span className={`pill state-${state}`}>{state}</span>
-            <span className={`pill ${micActive ? 'pill-hot' : ''}`}>mic {micActive ? 'on' : 'off'}</span>
-            <span className="pill pill-soft">mouth {mouthOpen.toFixed(2)}</span>
-          </div>
-        </div>
-        <div className="latency-card">
-          <div className="eyebrow">Latency (ms)</div>
-          <div className="latency-grid">
-            <div>
-              <span>STT</span>
-              <strong>{latency.stt ?? '—'}</strong>
-            </div>
-            <div>
-              <span>LLM</span>
-              <strong>{latency.llm ?? '—'}</strong>
-            </div>
-            <div>
-              <span>TTS</span>
-              <strong>{latency.tts ?? '—'}</strong>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <section className="panel controls">
-        <div className="section-head">
-          <div>
-            <div className="eyebrow">接続とソース</div>
-            <h3>WebSocket / VRM</h3>
-          </div>
-          <div className="ws-url mono">{wsUrl}</div>
-        </div>
-        <div className="control-grid">
-          <div className="field">
-            <label>Base WS URL</label>
-            <input
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={DEFAULT_WS_BASE_URL}
-            />
-          </div>
-          <div className="field">
-            <label>Session ID</label>
-            <input value={sessionId} onChange={(e) => setSessionId(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>VRM URL</label>
-            <input value={vrmUrl} onChange={(e) => setVrmUrl(e.target.value)} placeholder="https://...vrm" />
-          </div>
-        </div>
-        <div className="actions">
-          <button onClick={connect} disabled={state === 'connected' || state === 'connecting'}>
-            Connect
-          </button>
-          <button onClick={disconnect} disabled={state === 'disconnected'}>
-            Disconnect
-          </button>
-          <button onClick={() => sendControl('ping')} disabled={state !== 'connected'}>
-            Ping
-          </button>
-          <button onClick={() => sendControl('flush')} disabled={state !== 'connected'}>
-            Flush
-          </button>
-          <button onClick={() => sendControl('resume')} disabled={state !== 'connected'}>
-            Resume
-          </button>
-          <button onClick={startMic} disabled={state !== 'connected' || micActive || !micSupported}>
-            録音開始
-          </button>
-          <button onClick={() => stopMic({ flush: true, reason: 'manual stop' })} disabled={!micActive}>
-            録音終了（送信）
-          </button>
-        </div>
-        <div className="live-stats">
-          <div className="stat-block">
-            <div className="eyebrow">Partial</div>
-            <p className="mono">{partial || '—'}</p>
-          </div>
-          <div className="stat-block">
-            <div className="eyebrow">User (latest)</div>
-            <p className="mono">{lastUserText || '—'}</p>
-          </div>
-          <div className="stat-block">
-            <div className="eyebrow">Assistant stream</div>
-            <p className="mono small">{lastAssistantText || '—'}</p>
-          </div>
-          <div className="stat-block">
-            <div className="eyebrow">TTS bytes</div>
-            <p className="mono">{ttsBytes}</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="panel persona">
-        <div className="section-head persona-head">
-          <div>
-            <div className="eyebrow">キャラクター / プロンプト</div>
-            <h3>Conversation Persona</h3>
-            <p className="sub small">
-              会話調で150字以内に収まるようにシステムプロンプトを固定しています。キャラクターを登録すると自動で反映されます。
-            </p>
-          </div>
-          <div className="pill pill-soft">150文字以内</div>
-        </div>
-        <div className="persona-grid">
-          <div className="persona-list">
-            <div className={`persona-card ${activeCharacterId === null ? 'active' : ''}`}>
-              <div className="card-head">
-                <div>
-                  <div className="eyebrow">デフォルト</div>
-                  <h4>キャラクターなし</h4>
-                </div>
-                <button className="ghost" onClick={() => handleSelectCharacter(null)} disabled={activeCharacterId === null}>
-                  適用
-                </button>
-              </div>
-              <p className="mono small persona-text">
-                会話調で150字以内の短い返答。コンテキストがあれば要点だけ取り込みます。
-              </p>
-            </div>
-            {characterLoading ? <p className="hint">キャラクターを読み込み中...</p> : null}
-            {!characterLoading && characters.length === 0 ? (
-              <p className="hint">登録済みのキャラクターがありません。右のフォームから追加できます。</p>
-            ) : null}
-            {characters.map((character) => (
-              <div
-                key={character.id}
-                className={`persona-card ${activeCharacterId === character.id ? 'active' : ''}`}
-              >
-                <div className="card-head">
-                  <div>
-                    <div className="eyebrow">ID {character.id}</div>
-                    <h4>{character.name}</h4>
-                  </div>
-                  <div className="pill pill-soft">更新 {new Date(character.updatedAt).toLocaleDateString()}</div>
-                </div>
-                <p className="mono small persona-text">{character.persona}</p>
-                {character.speakingStyle ? (
-                  <p className="mono small persona-text faint">話し方: {character.speakingStyle}</p>
-                ) : null}
-                <div className="card-actions">
-                  <button
-                    onClick={() => handleSelectCharacter(character.id)}
-                    disabled={activeCharacterId === character.id}
-                  >
-                    このキャラを使う
-                  </button>
-                  <button onClick={() => startEditCharacter(character)} className="ghost">
-                    編集
-                  </button>
-                  <button
-                    onClick={() => deleteCharacter(character.id)}
-                    className="ghost danger"
-                    disabled={characterDeletingId === character.id}
-                  >
-                    {characterDeletingId === character.id ? '削除中...' : '削除'}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="persona-form">
-            <div className="eyebrow">作成 / 更新</div>
-            <h4>{characterEditingId ? `編集: ${characterForm.name}` : '新規キャラクター'}</h4>
-            <div className="field">
-              <label>名前</label>
-              <input
-                value={characterForm.name}
-                onChange={(e) => setCharacterForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="例: 明るい秘書 / 落ち着いた案内役"
-              />
-            </div>
-            <div className="field">
-              <label>人物像・役割</label>
-              <textarea
-                value={characterForm.persona}
-                onChange={(e) => setCharacterForm((prev) => ({ ...prev, persona: e.target.value }))}
-                rows={3}
-                placeholder="例: 元気でテンポが良い。問いの意図を汲み、余計な枕詞は避ける。"
-              />
-            </div>
-            <div className="field">
-              <label>話し方のヒント（任意）</label>
-              <textarea
-                value={characterForm.speakingStyle}
-                onChange={(e) => setCharacterForm((prev) => ({ ...prev, speakingStyle: e.target.value }))}
-                rows={2}
-                placeholder="例: 言い切り口調。数字は具体的に、敬語は簡潔に。"
-              />
-            </div>
-            {characterError ? <p className="error-text">{characterError}</p> : null}
-            <div className="actions">
-              <button onClick={saveCharacter} disabled={characterSaving}>
-                {characterSaving ? '保存中...' : '保存して適用'}
-              </button>
-              <button onClick={resetCharacterForm} className="ghost">
-                新規作成にリセット
-              </button>
-            </div>
-            <p className="hint">
-              デフォルトプロンプト: 会話調で150字以内の応答を徹底。ここで登録した人物像と話し方はシステムプロンプトに追加されます。
-            </p>
-          </div>
-        </div>
-        <div className="prompt-grid">
-          <div>
-            <div className="eyebrow">システムプロンプト一覧</div>
-            {systemPromptLoading ? <p className="hint">読み込み中...</p> : null}
-            {!systemPromptLoading && systemPrompts.length === 0 ? (
-              <div className="persona-card">
-                <div className="card-head">
-                  <div>
-                    <div className="eyebrow">デフォルト</div>
-                    <h4>保存済みプロンプトなし</h4>
-                  </div>
-                </div>
-                <p className="mono small persona-text">{DEFAULT_SYSTEM_PROMPT}</p>
-              </div>
-            ) : null}
-            {systemPrompts.map((prompt) => (
-              <div key={prompt.id} className={`persona-card ${prompt.isActive ? 'active' : ''}`}>
-                <div className="card-head">
-                  <div>
-                    <div className="eyebrow">ID {prompt.id}</div>
-                    <h4>{prompt.title}</h4>
-                  </div>
-                  {prompt.isActive ? <span className="pill pill-soft">active</span> : null}
-                </div>
-                <p className="mono small persona-text">{prompt.content}</p>
-                <div className="card-actions">
-                  <button onClick={() => startEditSystemPrompt(prompt)} className="ghost">
-                    編集
-                  </button>
-                  {!prompt.isActive ? (
-                    <button onClick={() => setActiveSystemPrompt(prompt.id)}>
-                      これを適用
-                    </button>
-                  ) : null}
-                  <button
-                    onClick={() => deleteSystemPrompt(prompt.id)}
-                    className="ghost danger"
-                    disabled={systemPromptDeletingId === prompt.id}
-                  >
-                    {systemPromptDeletingId === prompt.id ? '削除中...' : '削除'}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="persona-form">
-            <div className="eyebrow">システムプロンプトの作成 / 更新</div>
-            <h4>{systemPromptEditingId ? `編集: ${systemPromptForm.title}` : '新規プロンプト'}</h4>
-            <div className="field">
-              <label>タイトル</label>
-              <input
-                value={systemPromptForm.title}
-                onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, title: e.target.value }))}
-                placeholder="例: フレンドリー / 簡潔回答"
-              />
-            </div>
-            <div className="field">
-              <label>本文</label>
-              <textarea
-                value={systemPromptForm.content}
-                onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, content: e.target.value }))}
-                rows={4}
-                placeholder={DEFAULT_SYSTEM_PROMPT}
-              />
-            </div>
-            <div className="field inline-checkbox">
-              <label className="inline">
-                <input
-                  type="checkbox"
-                  checked={systemPromptForm.isActive}
-                  onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, isActive: e.target.checked }))}
-                />
-                <span>これを適用状態にする</span>
-              </label>
-            </div>
-            {systemPromptError ? <p className="error-text">{systemPromptError}</p> : null}
-            <div className="actions">
-              <button onClick={saveSystemPrompt} disabled={systemPromptSaving}>
-                {systemPromptSaving ? '保存中...' : '保存'}
-              </button>
-              <button onClick={resetSystemPromptForm} className="ghost">
-                新規作成にリセット
-              </button>
-            </div>
-            <p className="hint">
-              保存済みのプロンプトを active にすると、LLM のシステムプロンプトとして利用されます。未設定時はデフォルト文を使用。
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <div className="main-grid">
-        <section className="panel avatar-panel">
-          <div className="section-head">
-            <div>
-              <div className="eyebrow">three-vrm + react-three-fiber</div>
-              <h3>{avatarName ?? 'VRM Viewer'}</h3>
-            </div>
-            <div className="avatar-head-actions">
-              <button onClick={() => setCameraResetKey((key) => key + 1)} disabled={!avatarName}>
-                視点リセット
-              </button>
-              <div className="pill pill-soft">mouth {mouthOpen.toFixed(2)}</div>
-            </div>
-          </div>
-          <div className="canvas-wrap">
-            <CanvasErrorBoundary
-              resetKey={vrmUrl}
-              onError={(err) => appendLog(`vrm load error: ${err.message}`)}
-            >
-              <AvatarCanvas
-                key={vrmUrl}
-                url={vrmUrl}
-                mouthOpen={mouthOpen}
-                onLoaded={setAvatarName}
-                recenterKey={cameraResetKey}
-              />
-            </CanvasErrorBoundary>
-          </div>
-          <div className="avatar-meta">
-            <div>
-              <div className="eyebrow">VRM</div>
-              <p className="mono small">{vrmUrl}</p>
-            </div>
-            <div>
-              <div className="eyebrow">リップシンク</div>
-              <div className="meter">
-                <div className="bar" style={{ width: `${mouthOpen * 100}%` }} />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel chat-panel">
-          <div className="section-head">
-            <div>
-              <div className="eyebrow">Text Chat Log</div>
-              <h3>STT / LLM ストリーム</h3>
-            </div>
-          </div>
-          <ChatLog turns={chatTurns} partial={partial} />
-        </section>
+    <div className="scene-shell">
+      <div className="scene-canvas">
+        <CanvasErrorBoundary resetKey={vrmUrl} onError={(err) => appendLog(`vrm load error: ${err.message}`)}>
+          <AvatarCanvas
+            key={vrmUrl}
+            url={vrmUrl}
+            mouthOpen={mouthOpen}
+            onLoaded={setAvatarName}
+            recenterKey={cameraResetKey}
+          />
+        </CanvasErrorBoundary>
       </div>
 
-      <section className="panel diagnostics">
-        <div className="section-head diag-headline">
-          <div>
-            <div className="eyebrow">要素別検証</div>
-            <h3>Diagnostics Playground</h3>
-            <p className="sub small">
-              STT / LLM / TTS / Embedding / RAG / DB を個別に叩き、ボトルネックを切り分けます。
-            </p>
-          </div>
-          <div className="field api-field">
-            <label>API Base URL</label>
-            <input
-              value={apiBaseUrl}
-              onChange={(e) => setApiBaseUrl(e.target.value)}
-              placeholder={DEFAULT_API_BASE_URL}
-            />
-            <p className="hint mono small">{`${apiBase}/diagnostics/...`}</p>
+      <div className="remote-fab glass-panel">
+        <div className="remote-row compact">
+          <button
+            className={`icon-button ${state === 'connected' ? 'active' : ''}`}
+            onClick={state === 'connected' ? disconnect : connect}
+            disabled={state === 'connecting'}
+            aria-label={state === 'connected' ? 'Disconnect' : 'Connect'}
+          >
+            {state === 'connected' ? <Plug size={16} /> : <PlugZap size={16} />}
+          </button>
+          <button
+            className={`icon-button ${micActive ? 'hot' : ''}`}
+            onClick={micActive ? () => stopMic({ flush: true, reason: 'manual stop' }) : startMic}
+            disabled={state !== 'connected' || (!micActive && !micSupported)}
+            aria-label={micActive ? '録音停止' : '録音開始'}
+          >
+            {micActive ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
+          <button className="ghost compact" onClick={() => setCameraResetKey((key) => key + 1)} disabled={!avatarName}>
+            視点
+          </button>
+          <span className={`pill state-${state}`}>{state}</span>
+          <span className={`pill ${micActive ? 'pill-hot' : ''}`}>mic {micActive ? 'on' : 'off'}</span>
+          <span className="pill pill-soft">mouth {mouthOpen.toFixed(2)}</span>
+        </div>
+        <div className="remote-chips compact">
+          <button
+            className={`remote-chip ${connectionDrawerOpen ? 'active' : ''}`}
+            onClick={() => setConnectionDrawerOpen((open) => !open)}
+            aria-label="接続 / ソース"
+          >
+            <Settings2 size={16} />
+          </button>
+          <button
+            className={`remote-chip ${personaDrawerOpen ? 'active' : ''}`}
+            onClick={() => setPersonaDrawerOpen((open) => !open)}
+            aria-label="キャラクター"
+          >
+            <UserRound size={16} />
+          </button>
+          <button
+            className={`remote-chip ${diagnosticsDrawerOpen ? 'active' : ''}`}
+            onClick={() => setDiagnosticsDrawerOpen((open) => !open)}
+            aria-label="Diagnostics"
+          >
+            <FlaskConical size={16} />
+          </button>
+          <button
+            className={`remote-chip ${logsDrawerOpen ? 'active' : ''}`}
+            onClick={() => setLogsDrawerOpen((open) => !open)}
+            aria-label="WS / オーディオ"
+          >
+            <ScrollText size={16} />
+          </button>
+        </div>
+        <div className="remote-meta compact">
+          <p className="mono tiny">{avatarName ?? 'VRM'}</p>
+          <div className="meter mini">
+            <div className="bar" style={{ width: `${mouthOpen * 100}%` }} />
           </div>
         </div>
+      </div>
 
-        <div className="diag-grid">
-          <div className="diag-card">
-            <div className="diag-head">
+      <div className="stream-fab glass-panel">
+        <div className="stream-head">
+          <div>
+            <div className="eyebrow">STT / LLM</div>
+            <h4>最新</h4>
+          </div>
+          <div className="stream-actions">
+            <button className="ghost compact" onClick={() => setHistoryOpen((open) => !open)}>
+              {historyOpen ? 'history ▲' : 'history ▼'}
+            </button>
+            <button className="ghost compact" onClick={() => setShowLatencyPanel((open) => !open)}>
+              {showLatencyPanel ? 'latency ▲' : 'latency ▼'}
+            </button>
+          </div>
+        </div>
+        <div className="stream-mini">
+          <div className="stream-row">
+            <span className="label">partial</span>
+            <p className="mono tiny text-ellipsis">{partial || '—'}</p>
+          </div>
+          <div className="stream-row">
+            <span className="label">user</span>
+            <p className="mono tiny text-ellipsis">{latestTurn?.userText || '—'}</p>
+          </div>
+          <div className="stream-row">
+            <span className="label">assistant</span>
+            <p className="mono tiny text-ellipsis assistant">{latestTurn?.assistantText || '—'}</p>
+          </div>
+        </div>
+        {showLatencyPanel ? (
+          <div className="latency-card mini">
+            <div className="latency-grid">
               <div>
-                <div className="eyebrow">Speech to Text</div>
-                <h4>STT</h4>
+                <span>STT</span>
+                <strong>{latency.stt ?? '—'}</strong>
               </div>
-              <div className="pill pill-soft">
-                {sttResult ? `${(sttResult.byteLength / 1024).toFixed(1)} KB` : 'audio → text'}
+              <div>
+                <span>LLM</span>
+                <strong>{latency.llm ?? '—'}</strong>
               </div>
-            </div>
-            <div className="diag-body">
-              <label className="inline-label">音声ファイル</label>
-              <input type="file" accept="audio/*" onChange={(e) => setSttFile(e.target.files?.[0] ?? null)} />
-              <div className="diag-actions">
-                <button onClick={runSttCheck} disabled={sttLoading}>
-                  {sttLoading ? 'Running...' : 'STT 実行'}
-                </button>
-                {sttResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+              <div>
+                <span>TTS</span>
+                <strong>{latency.tts ?? '—'}</strong>
               </div>
-              {sttError ? <p className="error-text">{sttError}</p> : null}
-              {sttResult ? (
-                <div className="diag-result">
-                  <div className="diag-meta mono small">
-                    <span>{sttResult.provider}</span>
-                    <span>{sttResult.endpoint}</span>
-                  </div>
-                  <p className="mono small">{sttResult.text || '（空文字列）'}</p>
-                </div>
-              ) : (
-                <p className="hint">短い OGG/WebM を送り、音声のみでパイプラインを確認します。</p>
-              )}
             </div>
           </div>
-
-          <div className="diag-card">
-            <div className="diag-head">
-              <div>
-                <div className="eyebrow">Language</div>
-                <h4>LLM</h4>
-              </div>
-              <div className="pill pill-soft">{llmResult ? `${llmResult.latencyMs.toFixed(0)} ms` : 'prompt → tokens'}</div>
-            </div>
-            <div className="diag-body">
-              <label className="inline-label">プロンプト</label>
-              <textarea value={llmPrompt} onChange={(e) => setLlmPrompt(e.target.value)} rows={3} />
-              <label className="inline-label">コンテキスト（任意）</label>
-              <textarea
-                value={llmContext}
-                onChange={(e) => setLlmContext(e.target.value)}
-                rows={2}
-                placeholder="追加したい文脈があれば貼り付け"
-              />
-              <div className="diag-actions">
-                <button onClick={runLlmCheck} disabled={llmLoading}>
-                  {llmLoading ? 'Running...' : 'LLM 実行'}
-                </button>
-                {llmResult ? <span className="pill pill-soft">tokens {llmResult.tokens.length}</span> : null}
-                {llmResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
-              </div>
-              {llmError ? <p className="error-text">{llmError}</p> : null}
-              {llmResult ? (
-                <div className="diag-result">
-                  <div className="diag-meta mono small">
-                    <span>{llmResult.provider}</span>
-                    <span>{llmResult.endpoint}</span>
-                  </div>
-                  <p className="mono small preview-text">{llmResult.assistantText || '(empty response)'}</p>
+        ) : null}
+        {historyOpen ? (
+          <div className="history-list mini">
+            {chatTurns
+              .slice()
+              .reverse()
+              .map((turn) => (
+                <div key={turn.id} className="history-card">
+                  <p className="mono tiny text-ellipsis">{turn.userText || '（user textなし）'}</p>
+                  <p className="mono tiny text-ellipsis assistant">{turn.assistantText || '応答なし'}</p>
                 </div>
-              ) : (
-                <p className="hint">音声抜きで LLM 単体のレイテンシと応答をチェック。</p>
-              )}
-            </div>
+              ))}
+            {!chatTurns.length ? <p className="hint tiny">履歴なし</p> : null}
           </div>
+        ) : null}
+      </div>
 
-          <div className="diag-card">
-            <div className="diag-head">
-              <div>
-                <div className="eyebrow">Text to Speech</div>
-                <h4>TTS</h4>
-              </div>
-              <div className="pill pill-soft">{ttsMeta ? `${ttsMeta.byteLength} bytes` : 'text → audio'}</div>
-            </div>
-            <div className="diag-body">
-              <label className="inline-label">テキスト</label>
-              <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} rows={3} />
-              <label className="inline-label">Voice（任意）</label>
-              <input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} placeholder="provider 側の音声 reference id" />
-              <div className="diag-actions">
-                <button onClick={runTtsCheck} disabled={ttsLoading}>
-                  {ttsLoading ? 'Running...' : 'TTS 実行'}
-                </button>
-                {ttsMeta?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
-                {ttsMeta ? <span className="pill pill-soft">{ttsMeta.latencyMs.toFixed(0)} ms</span> : null}
-              </div>
-              {ttsError ? <p className="error-text">{ttsError}</p> : null}
-              {ttsAudioUrl && ttsMeta ? (
-                <div className="diag-result">
-                  <audio controls src={ttsAudioUrl} />
-                  <div className="diag-meta mono small">
-                    <span>{ttsMeta.provider}</span>
-                    <span>{ttsMeta.mimeType}</span>
-                    <span>{ttsMeta.chunkCount} chunks</span>
+      <div className="ui-overlay">
+        <div className="drawer-stack">
+            {connectionDrawerOpen ? (
+              <div className="drawer-card controls-drawer">
+                <div className="drawer-head">
+                  <div>
+                    <div className="eyebrow">接続とソース</div>
+                    <h3>WebSocket / VRM</h3>
+                    <p className="mono small ws-url">{wsUrl}</p>
+                  </div>
+                  <button className="ghost" onClick={() => setConnectionDrawerOpen(false)}>
+                    収納
+                  </button>
+                </div>
+                <div className="control-grid">
+                  <div className="field">
+                    <label>Base WS URL</label>
+                    <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={DEFAULT_WS_BASE_URL} />
+                  </div>
+                  <div className="field">
+                    <label>Session ID</label>
+                    <input value={sessionId} onChange={(e) => setSessionId(e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>VRM URL</label>
+                    <input value={vrmUrl} onChange={(e) => setVrmUrl(e.target.value)} placeholder="https://...vrm" />
                   </div>
                 </div>
-              ) : (
-                <p className="hint">音声合成のみを実行し、再生とフォーマットを確認。</p>
-              )}
-            </div>
-          </div>
-
-          <div className="diag-card">
-            <div className="diag-head">
-              <div>
-                <div className="eyebrow">Embedding</div>
-                <h4>ベクトル生成</h4>
-              </div>
-              <div className="pill pill-soft">
-                {embeddingResult ? `${embeddingResult.dimensions} dim` : 'text → vector'}
-              </div>
-            </div>
-            <div className="diag-body">
-              <label className="inline-label">テキスト</label>
-              <textarea value={embeddingText} onChange={(e) => setEmbeddingText(e.target.value)} rows={3} />
-              <div className="diag-actions">
-                <button onClick={runEmbeddingCheck} disabled={embeddingLoading}>
-                  {embeddingLoading ? 'Running...' : 'Embedding 実行'}
-                </button>
-                {embeddingResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
-              </div>
-              {embeddingError ? <p className="error-text">{embeddingError}</p> : null}
-              {embeddingResult ? (
-                <div className="diag-result">
-                  <div className="diag-meta mono small">
-                    <span>{embeddingResult.provider}</span>
-                    <span>{embeddingResult.endpoint}</span>
+                <div className="actions">
+                  <button onClick={connect} disabled={state === 'connected' || state === 'connecting'}>
+                    Connect
+                  </button>
+                  <button onClick={disconnect} disabled={state === 'disconnected'}>
+                    Disconnect
+                  </button>
+                  <button onClick={() => sendControl('ping')} disabled={state !== 'connected'}>
+                    Ping
+                  </button>
+                  <button onClick={() => sendControl('flush')} disabled={state !== 'connected'}>
+                    Flush
+                  </button>
+                  <button onClick={() => sendControl('resume')} disabled={state !== 'connected'}>
+                    Resume
+                  </button>
+                  <button onClick={startMic} disabled={state !== 'connected' || micActive || !micSupported}>
+                    録音開始
+                  </button>
+                  <button onClick={() => stopMic({ flush: true, reason: 'manual stop' })} disabled={!micActive}>
+                    録音終了（送信）
+                  </button>
+                </div>
+                <div className="live-stats">
+                  <div className="stat-block">
+                    <div className="eyebrow">Partial</div>
+                    <p className="mono">{partial || '—'}</p>
                   </div>
-                  <p className="mono small vector-preview">
-                    {embeddingResult.vector.slice(0, 8).map((value, idx) => (
-                      <span key={idx} className="vector-chip">
-                        {value.toFixed(3)}
-                      </span>
+                  <div className="stat-block">
+                    <div className="eyebrow">User (latest)</div>
+                    <p className="mono">{lastUserText || '—'}</p>
+                  </div>
+                  <div className="stat-block">
+                    <div className="eyebrow">Assistant stream</div>
+                    <p className="mono small">{lastAssistantText || '—'}</p>
+                  </div>
+                  <div className="stat-block">
+                    <div className="eyebrow">TTS bytes</div>
+                    <p className="mono">{ttsBytes}</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {personaDrawerOpen ? (
+              <div className="drawer-card persona-drawer">
+                <div className="drawer-head persona-head">
+                  <div>
+                    <div className="eyebrow">キャラクター / プロンプト</div>
+                    <h3>Conversation Persona</h3>
+                    <p className="sub small">
+                      会話調で150字以内に収まるようにシステムプロンプトを固定しています。キャラクターを登録すると自動で反映されます。
+                    </p>
+                  </div>
+                  <div className="drawer-head-actions">
+                    <span className="pill pill-soft">150文字以内</span>
+                    <button className="ghost" onClick={() => setPersonaDrawerOpen(false)}>
+                      収納
+                    </button>
+                  </div>
+                </div>
+                <div className="persona-grid">
+                  <div className="persona-list">
+                    <div className={`persona-card ${activeCharacterId === null ? 'active' : ''}`}>
+                      <div className="card-head">
+                        <div>
+                          <div className="eyebrow">デフォルト</div>
+                          <h4>キャラクターなし</h4>
+                        </div>
+                        <button className="ghost" onClick={() => handleSelectCharacter(null)} disabled={activeCharacterId === null}>
+                          適用
+                        </button>
+                      </div>
+                      <p className="mono small persona-text">
+                        会話調で150字以内の短い返答。コンテキストがあれば要点だけ取り込みます。
+                      </p>
+                    </div>
+                    {characterLoading ? <p className="hint">キャラクターを読み込み中...</p> : null}
+                    {!characterLoading && characters.length === 0 ? (
+                      <p className="hint">登録済みのキャラクターがありません。右のフォームから追加できます。</p>
+                    ) : null}
+                    {characters.map((character) => (
+                      <div
+                        key={character.id}
+                        className={`persona-card ${activeCharacterId === character.id ? 'active' : ''}`}
+                      >
+                        <div className="card-head">
+                          <div>
+                            <div className="eyebrow">ID {character.id}</div>
+                            <h4>{character.name}</h4>
+                          </div>
+                          <div className="pill pill-soft">更新 {new Date(character.updatedAt).toLocaleDateString()}</div>
+                        </div>
+                        <p className="mono small persona-text">{character.persona}</p>
+                        {character.speakingStyle ? (
+                          <p className="mono small persona-text faint">話し方: {character.speakingStyle}</p>
+                        ) : null}
+                        <div className="card-actions">
+                          <button
+                            onClick={() => handleSelectCharacter(character.id)}
+                            disabled={activeCharacterId === character.id}
+                          >
+                            このキャラを使う
+                          </button>
+                          <button onClick={() => startEditCharacter(character)} className="ghost">
+                            編集
+                          </button>
+                          <button
+                            onClick={() => deleteCharacter(character.id)}
+                            className="ghost danger"
+                            disabled={characterDeletingId === character.id}
+                          >
+                            {characterDeletingId === character.id ? '削除中...' : '削除'}
+                          </button>
+                        </div>
+                      </div>
                     ))}
-                    {embeddingResult.vector.length > 8 ? ' ...' : ''}
-                  </p>
-                </div>
-              ) : (
-                <p className="hint">RAG の前段となる埋め込み生成だけを計測。</p>
-              )}
-            </div>
-          </div>
-
-          <div className="diag-card">
-            <div className="diag-head">
-              <div>
-                <div className="eyebrow">RAG</div>
-                <h4>検索</h4>
-              </div>
-              <div className="pill pill-soft">
-                {ragResult ? `${ragResult.documents.length} docs` : 'query → context'}
-              </div>
-            </div>
-            <div className="diag-body">
-              <label className="inline-label">クエリ</label>
-              <input value={ragQuery} onChange={(e) => setRagQuery(e.target.value)} />
-              <label className="inline-label">top_k</label>
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={ragTopK}
-                onChange={(e) => setRagTopK(e.target.value)}
-              />
-              <div className="diag-actions">
-                <button onClick={runRagCheck} disabled={ragLoading}>
-                  {ragLoading ? 'Running...' : 'RAG 検索'}
-                </button>
-                {ragResult ? (
-                  <span className={`pill ${ragResult.ragIndexLoaded ? 'pill-soft' : 'pill-hot'}`}>
-                    index {ragResult.ragIndexLoaded ? 'loaded' : 'not loaded'}
-                  </span>
-                ) : null}
-              </div>
-              {ragError ? <p className="error-text">{ragError}</p> : null}
-              {ragResult ? (
-                <div className="diag-result">
-                  <div className="diag-meta mono small">
-                    <span>top_k: {ragResult.topK}</span>
-                    <span>docs: {ragResult.documents.length}</span>
                   </div>
-                  <ul className="doc-list">
-                    {ragResult.documents.map((doc, idx) => (
-                      <li key={`${doc.source}-${idx}`}>
-                        <div className="pill pill-soft">#{idx + 1} {doc.source}</div>
-                        <p className="mono small">{doc.content}</p>
+                  <div className="persona-form">
+                    <div className="eyebrow">作成 / 更新</div>
+                    <h4>{characterEditingId ? `編集: ${characterForm.name}` : '新規キャラクター'}</h4>
+                    <div className="field">
+                      <label>名前</label>
+                      <input
+                        value={characterForm.name}
+                        onChange={(e) => setCharacterForm((prev) => ({ ...prev, name: e.target.value }))}
+                        placeholder="例: 明るい秘書 / 落ち着いた案内役"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>人物像・役割</label>
+                      <textarea
+                        value={characterForm.persona}
+                        onChange={(e) => setCharacterForm((prev) => ({ ...prev, persona: e.target.value }))}
+                        rows={3}
+                        placeholder="例: 元気でテンポが良い。問いの意図を汲み、余計な枕詞は避ける。"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>話し方のヒント（任意）</label>
+                      <textarea
+                        value={characterForm.speakingStyle}
+                        onChange={(e) => setCharacterForm((prev) => ({ ...prev, speakingStyle: e.target.value }))}
+                        rows={2}
+                        placeholder="例: 言い切り口調。数字は具体的に、敬語は簡潔に。"
+                      />
+                    </div>
+                    {characterError ? <p className="error-text">{characterError}</p> : null}
+                    <div className="actions">
+                      <button onClick={saveCharacter} disabled={characterSaving}>
+                        {characterSaving ? '保存中...' : '保存して適用'}
+                      </button>
+                      <button onClick={resetCharacterForm} className="ghost">
+                        新規作成にリセット
+                      </button>
+                    </div>
+                    <p className="hint">
+                      デフォルトプロンプト: 会話調で150字以内の応答を徹底。ここで登録した人物像と話し方はシステムプロンプトに追加されます。
+                    </p>
+                  </div>
+                </div>
+                <div className="prompt-grid">
+                  <div>
+                    <div className="eyebrow">システムプロンプト一覧</div>
+                    {systemPromptLoading ? <p className="hint">読み込み中...</p> : null}
+                    {!systemPromptLoading && systemPrompts.length === 0 ? (
+                      <div className="persona-card">
+                        <div className="card-head">
+                          <div>
+                            <div className="eyebrow">デフォルト</div>
+                            <h4>保存済みプロンプトなし</h4>
+                          </div>
+                        </div>
+                        <p className="mono small persona-text">{DEFAULT_SYSTEM_PROMPT}</p>
+                      </div>
+                    ) : null}
+                    {systemPrompts.map((prompt) => (
+                      <div key={prompt.id} className={`persona-card ${prompt.isActive ? 'active' : ''}`}>
+                        <div className="card-head">
+                          <div>
+                            <div className="eyebrow">ID {prompt.id}</div>
+                            <h4>{prompt.title}</h4>
+                          </div>
+                          {prompt.isActive ? <span className="pill pill-soft">active</span> : null}
+                        </div>
+                        <p className="mono small persona-text">{prompt.content}</p>
+                        <div className="card-actions">
+                          <button onClick={() => startEditSystemPrompt(prompt)} className="ghost">
+                            編集
+                          </button>
+                          {!prompt.isActive ? (
+                            <button onClick={() => setActiveSystemPrompt(prompt.id)}>
+                              これを適用
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={() => deleteSystemPrompt(prompt.id)}
+                            className="ghost danger"
+                            disabled={systemPromptDeletingId === prompt.id}
+                          >
+                            {systemPromptDeletingId === prompt.id ? '削除中...' : '削除'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="persona-form">
+                    <div className="eyebrow">システムプロンプトの作成 / 更新</div>
+                    <h4>{systemPromptEditingId ? `編集: ${systemPromptForm.title}` : '新規プロンプト'}</h4>
+                    <div className="field">
+                      <label>タイトル</label>
+                      <input
+                        value={systemPromptForm.title}
+                        onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, title: e.target.value }))}
+                        placeholder="例: フレンドリー / 簡潔回答"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>本文</label>
+                      <textarea
+                        value={systemPromptForm.content}
+                        onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, content: e.target.value }))}
+                        rows={4}
+                        placeholder={DEFAULT_SYSTEM_PROMPT}
+                      />
+                    </div>
+                    <div className="field inline-checkbox">
+                      <label className="inline">
+                        <input
+                          type="checkbox"
+                          checked={systemPromptForm.isActive}
+                          onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+                        />
+                        <span>これを適用状態にする</span>
+                      </label>
+                    </div>
+                    {systemPromptError ? <p className="error-text">{systemPromptError}</p> : null}
+                    <div className="actions">
+                      <button onClick={saveSystemPrompt} disabled={systemPromptSaving}>
+                        {systemPromptSaving ? '保存中...' : '保存'}
+                      </button>
+                      <button onClick={resetSystemPromptForm} className="ghost">
+                        新規作成にリセット
+                      </button>
+                    </div>
+                    <p className="hint">
+                      保存済みのプロンプトを active にすると、LLM のシステムプロンプトとして利用されます。未設定時はデフォルト文を使用。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {diagnosticsDrawerOpen ? (
+              <div className="drawer-card diagnostics-drawer diagnostics">
+                <div className="drawer-head diag-headline">
+                  <div>
+                    <div className="eyebrow">要素別検証</div>
+                    <h3>Diagnostics Playground</h3>
+                    <p className="sub small">
+                      STT / LLM / TTS / Embedding / RAG / DB を個別に叩き、ボトルネックを切り分けます。
+                    </p>
+                  </div>
+                  <div className="field api-field">
+                    <label>API Base URL</label>
+                    <input
+                      value={apiBaseUrl}
+                      onChange={(e) => setApiBaseUrl(e.target.value)}
+                      placeholder={DEFAULT_API_BASE_URL}
+                    />
+                    <p className="hint mono small">{`${apiBase}/diagnostics/...`}</p>
+                  </div>
+                  <button className="ghost" onClick={() => setDiagnosticsDrawerOpen(false)}>
+                    収納
+                  </button>
+                </div>
+
+                <div className="diag-grid">
+                  <div className="diag-card">
+                    <div className="diag-head">
+                      <div>
+                        <div className="eyebrow">Speech to Text</div>
+                        <h4>STT</h4>
+                      </div>
+                      <div className="pill pill-soft">
+                        {sttResult ? `${(sttResult.byteLength / 1024).toFixed(1)} KB` : 'audio → text'}
+                      </div>
+                    </div>
+                    <div className="diag-body">
+                      <label className="inline-label">音声ファイル</label>
+                      <input type="file" accept="audio/*" onChange={(e) => setSttFile(e.target.files?.[0] ?? null)} />
+                      <div className="diag-actions">
+                        <button onClick={runSttCheck} disabled={sttLoading}>
+                          {sttLoading ? 'Running...' : 'STT 実行'}
+                        </button>
+                        {sttResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+                      </div>
+                      {sttError ? <p className="error-text">{sttError}</p> : null}
+                      {sttResult ? (
+                        <div className="diag-result">
+                          <div className="diag-meta mono small">
+                            <span>{sttResult.provider}</span>
+                            <span>{sttResult.endpoint}</span>
+                          </div>
+                          <p className="mono small">{sttResult.text || '（空文字列）'}</p>
+                        </div>
+                      ) : (
+                        <p className="hint">短い OGG/WebM を送り、音声のみでパイプラインを確認します。</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="diag-card">
+                    <div className="diag-head">
+                      <div>
+                        <div className="eyebrow">Language</div>
+                        <h4>LLM</h4>
+                      </div>
+                      <div className="pill pill-soft">{llmResult ? `${llmResult.latencyMs.toFixed(0)} ms` : 'prompt → tokens'}</div>
+                    </div>
+                    <div className="diag-body">
+                      <label className="inline-label">プロンプト</label>
+                      <textarea value={llmPrompt} onChange={(e) => setLlmPrompt(e.target.value)} rows={3} />
+                      <label className="inline-label">コンテキスト（任意）</label>
+                      <textarea
+                        value={llmContext}
+                        onChange={(e) => setLlmContext(e.target.value)}
+                        rows={2}
+                        placeholder="追加したい文脈があれば貼り付け"
+                      />
+                      <div className="diag-actions">
+                        <button onClick={runLlmCheck} disabled={llmLoading}>
+                          {llmLoading ? 'Running...' : 'LLM 実行'}
+                        </button>
+                        {llmResult ? <span className="pill pill-soft">tokens {llmResult.tokens.length}</span> : null}
+                        {llmResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+                      </div>
+                      {llmError ? <p className="error-text">{llmError}</p> : null}
+                      {llmResult ? (
+                        <div className="diag-result">
+                          <div className="diag-meta mono small">
+                            <span>{llmResult.provider}</span>
+                            <span>{llmResult.endpoint}</span>
+                          </div>
+                          <p className="mono small preview-text">{llmResult.assistantText || '(empty response)'}</p>
+                        </div>
+                      ) : (
+                        <p className="hint">音声抜きで LLM 単体のレイテンシと応答をチェック。</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="diag-card">
+                    <div className="diag-head">
+                      <div>
+                        <div className="eyebrow">Text to Speech</div>
+                        <h4>TTS</h4>
+                      </div>
+                      <div className="pill pill-soft">{ttsMeta ? `${ttsMeta.byteLength} bytes` : 'text → audio'}</div>
+                    </div>
+                    <div className="diag-body">
+                      <label className="inline-label">テキスト</label>
+                      <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} rows={3} />
+                      <label className="inline-label">Voice（任意）</label>
+                      <input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} placeholder="provider 側の音声 reference id" />
+                      <div className="diag-actions">
+                        <button onClick={runTtsCheck} disabled={ttsLoading}>
+                          {ttsLoading ? 'Running...' : 'TTS 実行'}
+                        </button>
+                        {ttsMeta?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+                        {ttsMeta ? <span className="pill pill-soft">{ttsMeta.latencyMs.toFixed(0)} ms</span> : null}
+                      </div>
+                      {ttsError ? <p className="error-text">{ttsError}</p> : null}
+                      {ttsAudioUrl && ttsMeta ? (
+                        <div className="diag-result">
+                          <audio controls src={ttsAudioUrl} />
+                          <div className="diag-meta mono small">
+                            <span>{ttsMeta.provider}</span>
+                            <span>{ttsMeta.mimeType}</span>
+                            <span>{ttsMeta.chunkCount} chunks</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="hint">音声合成のみを実行し、再生とフォーマットを確認。</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="diag-card">
+                    <div className="diag-head">
+                      <div>
+                        <div className="eyebrow">Embedding</div>
+                        <h4>ベクトル生成</h4>
+                      </div>
+                      <div className="pill pill-soft">
+                        {embeddingResult ? `${embeddingResult.dimensions} dim` : 'text → vector'}
+                      </div>
+                    </div>
+                    <div className="diag-body">
+                      <label className="inline-label">テキスト</label>
+                      <textarea value={embeddingText} onChange={(e) => setEmbeddingText(e.target.value)} rows={3} />
+                      <div className="diag-actions">
+                        <button onClick={runEmbeddingCheck} disabled={embeddingLoading}>
+                          {embeddingLoading ? 'Running...' : 'Embedding 実行'}
+                        </button>
+                        {embeddingResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+                      </div>
+                      {embeddingError ? <p className="error-text">{embeddingError}</p> : null}
+                      {embeddingResult ? (
+                        <div className="diag-result">
+                          <div className="diag-meta mono small">
+                            <span>{embeddingResult.provider}</span>
+                            <span>{embeddingResult.endpoint}</span>
+                          </div>
+                          <p className="mono small vector-preview">
+                            {embeddingResult.vector.slice(0, 8).map((value, idx) => (
+                              <span key={idx} className="vector-chip">
+                                {value.toFixed(3)}
+                              </span>
+                            ))}
+                            {embeddingResult.vector.length > 8 ? ' ...' : ''}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="hint">RAG の前段となる埋め込み生成だけを計測。</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="diag-card">
+                    <div className="diag-head">
+                      <div>
+                        <div className="eyebrow">RAG</div>
+                        <h4>検索</h4>
+                      </div>
+                      <div className="pill pill-soft">
+                        {ragResult ? `${ragResult.documents.length} docs` : 'query → context'}
+                      </div>
+                    </div>
+                    <div className="diag-body">
+                      <label className="inline-label">クエリ</label>
+                      <input value={ragQuery} onChange={(e) => setRagQuery(e.target.value)} />
+                      <label className="inline-label">top_k</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={ragTopK}
+                        onChange={(e) => setRagTopK(e.target.value)}
+                      />
+                      <div className="diag-actions">
+                        <button onClick={runRagCheck} disabled={ragLoading}>
+                          {ragLoading ? 'Running...' : 'RAG 検索'}
+                        </button>
+                        {ragResult ? (
+                          <span className={`pill ${ragResult.ragIndexLoaded ? 'pill-soft' : 'pill-hot'}`}>
+                            index {ragResult.ragIndexLoaded ? 'loaded' : 'not loaded'}
+                          </span>
+                        ) : null}
+                      </div>
+                      {ragError ? <p className="error-text">{ragError}</p> : null}
+                      {ragResult ? (
+                        <div className="diag-result">
+                          <div className="diag-meta mono small">
+                            <span>top_k: {ragResult.topK}</span>
+                            <span>docs: {ragResult.documents.length}</span>
+                          </div>
+                          <ul className="doc-list">
+                            {ragResult.documents.map((doc, idx) => (
+                              <li key={`${doc.source}-${idx}`}>
+                                <div className="pill pill-soft">#{idx + 1} {doc.source}</div>
+                                <p className="mono small">{doc.content}</p>
+                              </li>
+                            ))}
+                          </ul>
+                          <pre className="context-preview mono small">{ragResult.contextText || 'context empty'}</pre>
+                        </div>
+                      ) : (
+                        <p className="hint">FAISS や文書ロードの結果だけを先にチェック。</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="diag-card">
+                    <div className="diag-head">
+                      <div>
+                        <div className="eyebrow">Database</div>
+                        <h4>DB 接続</h4>
+                      </div>
+                      <div className="pill pill-soft">{dbStatus?.status ?? 'ping only'}</div>
+                    </div>
+                    <div className="diag-body">
+                      <p className="hint">DB だけを切り離してヘルス確認。ログ件数が取れれば書き込みも確認。</p>
+                      <div className="diag-actions">
+                        <button onClick={pingDatabase} disabled={dbLoading}>
+                          {dbLoading ? 'Pinging...' : 'DB Ping'}
+                        </button>
+                      </div>
+                      {dbError ? <p className="error-text">{dbError}</p> : null}
+                      {dbStatus ? (
+                        <div className="diag-result">
+                          <div className="diag-meta mono small">
+                            <span>status: {dbStatus.status}</span>
+                            {typeof dbStatus.conversationLogCount === 'number' ? (
+                              <span>logs: {dbStatus.conversationLogCount}</span>
+                            ) : null}
+                          </div>
+                          {dbStatus.detail ? <p className="mono small">{dbStatus.detail}</p> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {logsDrawerOpen ? (
+              <div className="drawer-card log-drawer log">
+                <div className="drawer-head">
+                  <div>
+                    <div className="eyebrow">Events</div>
+                    <h3>WS / オーディオログ</h3>
+                  </div>
+                  <div className="drawer-head-actions">
+                    <div className="pill pill-soft">max 80 entries</div>
+                    <button className="ghost" onClick={() => setLogsDrawerOpen(false)}>
+                      収納
+                    </button>
+                  </div>
+                </div>
+                <ul>
+                  {logs
+                    .slice()
+                    .reverse()
+                    .map((entry, idx) => (
+                      <li key={idx}>
+                        <span className="time">{entry.time}</span>
+                        <span className="text">{entry.text}</span>
                       </li>
                     ))}
-                  </ul>
-                  <pre className="context-preview mono small">{ragResult.contextText || 'context empty'}</pre>
-                </div>
-              ) : (
-                <p className="hint">FAISS や文書ロードの結果だけを先にチェック。</p>
-              )}
-            </div>
-          </div>
-
-          <div className="diag-card">
-            <div className="diag-head">
-              <div>
-                <div className="eyebrow">Database</div>
-                <h4>DB 接続</h4>
+                </ul>
               </div>
-              <div className="pill pill-soft">{dbStatus?.status ?? 'ping only'}</div>
-            </div>
-            <div className="diag-body">
-              <p className="hint">DB だけを切り離してヘルス確認。ログ件数が取れれば書き込みも確認。</p>
-              <div className="diag-actions">
-                <button onClick={pingDatabase} disabled={dbLoading}>
-                  {dbLoading ? 'Pinging...' : 'DB Ping'}
-                </button>
-              </div>
-              {dbError ? <p className="error-text">{dbError}</p> : null}
-              {dbStatus ? (
-                <div className="diag-result">
-                  <div className="diag-meta mono small">
-                    <span>status: {dbStatus.status}</span>
-                    {typeof dbStatus.conversationLogCount === 'number' ? (
-                      <span>logs: {dbStatus.conversationLogCount}</span>
-                    ) : null}
-                  </div>
-                  {dbStatus.detail ? <p className="mono small">{dbStatus.detail}</p> : null}
-                </div>
-              ) : null}
-            </div>
+            ) : null}
           </div>
         </div>
-      </section>
-
-      <section className="panel log">
-        <div className="section-head">
-          <div>
-            <div className="eyebrow">Events</div>
-            <h3>WS / オーディオログ</h3>
-          </div>
-          <div className="pill pill-soft">max 80 entries</div>
-        </div>
-        <ul>
-          {logs
-            .slice()
-            .reverse()
-            .map((entry, idx) => (
-              <li key={idx}>
-                <span className="time">{entry.time}</span>
-                <span className="text">{entry.text}</span>
-              </li>
-            ))}
-        </ul>
-      </section>
-    </div>
+      </div>
   )
 }
 

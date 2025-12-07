@@ -1,5 +1,10 @@
 # React + TypeScript + Vite
 
+## プロジェクトメモ
+
+- デバッグ UI のアイコンは `lucide-react` を使用しています（接続/録音のリモコン操作用）。
+- 3D 表示は react-three-fiber + @react-three/drei + three-vrm を利用しています。
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
