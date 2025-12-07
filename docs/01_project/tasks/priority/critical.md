@@ -7,3 +7,5 @@
 - 2025年12月03日: docker compose プロファイル統合とホットリロード対応（完了、`tasks/completed/2025-12-03.md` を参照）。
 - 2025年12月03日: フロントエンドからバックエンドへの接続先を任意ドメイン対応にする（環境変数/フォールバック実装）
 - 2025年12月03日: STT/LLM/TTS/Embedding/RAG/DB を個別検証できるデバッグ UI を追加（完了、`tasks/completed/2025-12-03.md` を参照）
+- 2025年12月07日: Diagnostics RAG エンドポイントでエラー内容が分からない問題のログ出力改善（完了、`tasks/completed/2025-12-07.md` を参照）
+- 2025年12月07日: AI秘書の記憶専用ドキュメント `memories/` の整備（basic_func.md を除き Git 追跡対象外にする）（完了、`tasks/completed/2025-12-07.md` を参照）

@@ -9,3 +9,4 @@
   - サンプル文書を ingest し、文書由来の問いを複数投げて LLM 応答に引用/文脈が含まれることを確認（ログに request_id と出典断片を残す）。
 - 動作確認: `COMPOSE_PROFILES=dev|prod docker compose up` 一発起動
   - dev/prod プロファイルそれぞれで `docker compose up` が通り、環境変数/エンドポイントが `config/providers.yaml` から正しく解決されることを確認（起動ログと ready/health の応答を保存）。
+- バグ修正: Diagnostics RAG エンドポイントで例外時に詳細ログが出ず原因特定できない問題の改善

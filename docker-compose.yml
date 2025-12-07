@@ -24,6 +24,7 @@ services:
     restart: unless-stopped
     working_dir: /workspace/backend
     volumes:
+      - ./memories:/workspace/memories:ro
       - ./config:/workspace/config:ro
       - ./data:/data
     <<: *common-env
@@ -53,6 +54,7 @@ services:
     command: ["sh", "-c", "uvicorn app.main:app --reload --host 0.0.0.0 --port ${BACKEND_PORT:-8000}"]
     volumes:
       - ./backend:/workspace/backend
+      - ./memories:/workspace/memories:ro
       - ./config:/workspace/config:ro
       - ./data:/data
     <<: *common-env

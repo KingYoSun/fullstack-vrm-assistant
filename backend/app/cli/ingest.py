@@ -66,10 +66,19 @@ def ingest(source_dir: Path, providers_path: Path, index_path: Path) -> None:
         )
         documents = split_documents(load_documents(source_dir))
         if not documents:
-            logger.warning("No documents found under %s", source_dir)
-            return
+            resolved = source_dir.resolve()
+            msg = f"No documents found under {resolved}"
+            logger.error(msg)
+            raise RuntimeError(msg)
         embeddings = RemoteEmbeddingsAdapter(embedding_client)
+        fallback_before = embedding_client.fallback_count
         vector_store = FAISS.from_documents(documents, embeddings)
+        if embedding_client.fallback_count > fallback_before:
+            msg = (
+                "Embedding provider fallback was used during ingest. "
+                "Ensure the embedding service is running to avoid a mismatched FAISS index."
+            )
+            raise RuntimeError(msg)
         save_vector_store(vector_store, index_path)
 
 
@@ -80,8 +89,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source",
         type=Path,
-        default=Path("docs"),
-        help="Directory to scan for .md/.txt/.pdf files.",
+        default=Path("memories"),
+        help="Directory to scan for .md/.txt/.pdf files (default: ./memories).",
     )
     parser.add_argument(
         "--providers",

@@ -18,3 +18,6 @@ wheels
 # models
 models
 references
+# memories (basic_func.md のみ追跡)
+memories/*
+!memories/basic_func.md

@@ -64,10 +64,29 @@ class RagService:
             logger.info("Vector store is not loaded. Returning empty search result.")
             return []
 
+        fallback_before = getattr(self._embedding_client, "fallback_count", 0)
         vectors = await self._embedding_client.aembed([query])
+        fallback_used = getattr(self._embedding_client, "fallback_count", 0) > fallback_before
         if not vectors:
+            logger.warning(
+                "Embedding returned no vectors for RAG search.",
+                extra={"fallback_used": fallback_used},
+            )
             return []
         query_vector = vectors[0]
+        index_dim = getattr(getattr(self._vector_store, "index", None), "d", None)
+        provider_name = getattr(getattr(self._embedding_client, "config", None), "provider", None)
+        if index_dim is not None and len(query_vector) != index_dim:
+            logger.error(
+                "RAG search vector dimension mismatch: query_dim=%s index_dim=%s provider=%s fallback_used=%s",
+                len(query_vector),
+                index_dim,
+                provider_name,
+                fallback_used,
+            )
+            raise ValueError(
+                f"embedding dimension mismatch (query={len(query_vector)}, index={index_dim})"
+            )
         k = top_k or self._config.top_k
         results = await asyncio.to_thread(
             self._vector_store.similarity_search_by_vector, query_vector, k

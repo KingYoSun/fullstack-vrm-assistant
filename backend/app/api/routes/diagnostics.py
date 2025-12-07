@@ -1,4 +1,5 @@
 import base64
+import logging
 import struct
 import time
 from collections.abc import AsyncIterable
@@ -27,6 +28,7 @@ from app.schemas.diagnostics import (
 from app.services.rag_service import RagService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _detect_audio_mime(audio_bytes: bytes) -> str | None:
@@ -221,7 +223,16 @@ async def diagnose_rag(
     try:
         docs = await rag_service.search(query, top_k=body.top_k)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"rag search failed: {exc}") from exc
+        error_text = str(exc).strip()
+        error_summary = f"{exc.__class__.__name__}: {error_text}" if error_text else exc.__class__.__name__
+        logger.exception(
+            "Diagnostics RAG search failed: query=%r top_k=%s is_loaded=%s index_path=%s",
+            query,
+            body.top_k,
+            rag_service.is_loaded,
+            getattr(rag_service, "_index_path", None),
+        )
+        raise HTTPException(status_code=500, detail=f"rag search failed: {error_summary}") from exc
     documents = [
         RagDocument(
             source=str(doc.metadata.get("source") or "unknown") if doc.metadata else "unknown",
