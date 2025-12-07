@@ -1,12 +1,4 @@
 # 進行中タスク
-- 動作確認: partial STT レイテンシ (p95 < 0.5s)
-  - dev/prod compose を起動しブラウザから 10〜20 回短文を発話。WS `partial` イベントの `latency_ms` もしくは受信時刻から p95 を算出し 500ms 未満を記録（ログ/スクリーンショット添付）。
-- 動作確認: 発話停止→LLM/TTS 再生開始レイテンシ (p95 < 2s)
-  - 同一セッションで 10〜20 回の発話を行い、end-of-speech から最初の TTS チャンク受信までの `latency_ms` またはログを計測。p95 が 2s 未満であることを確認し証跡を残す。
-- 動作確認: three-vrm 表示とリップシンク
-  - フロントの VRM が読み込まれ、TTS 再生中に `avatar_event`/音量に応じて口パクが動くことを画面録画で確認（任意の VRM 切替も含める）。
-- 動作確認: RAG 応答の正答性
-  - サンプル文書を ingest し、文書由来の問いを複数投げて LLM 応答に引用/文脈が含まれることを確認（ログに request_id と出典断片を残す）。
-- 動作確認: `COMPOSE_PROFILES=dev|prod docker compose up` 一発起動
-  - dev/prod プロファイルそれぞれで `docker compose up` が通り、環境変数/エンドポイントが `config/providers.yaml` から正しく解決されることを確認（起動ログと ready/health の応答を保存）。
-- バグ修正: Diagnostics RAG エンドポイントで例外時に詳細ログが出ず原因特定できない問題の改善
+- デバッグUIを react-three-fiber 側に移動して本番相当の UX を構築
+  - three-vrm の表示コンテキスト上に diagnostics/latency 可視化やプロバイダ切替 UI を統合し、実運用に近い UI/UX を提供する。
+  - 既存の debug パネル（shadcn/ui）からの移設と、パフォーマンスへの影響確認（scene レンダリング負荷、イベント伝搬）を含める。
