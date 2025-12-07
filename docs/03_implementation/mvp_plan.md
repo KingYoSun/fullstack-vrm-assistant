@@ -57,9 +57,9 @@
 - [x] エラーフォールバック（LLM/TTS 失敗時のテンプレ応答/テキスト提示）。
 
 ## 実運用レベルへの残タスク（追加で対応が必要な項目）
-- [x] docker compose を実プロバイダ構成に更新: `docker-compose.yml` を NIM Qwen3-32B / whisper.cpp / Open Audio S1 (Fish Speech) / llama.cpp embedding（CUDA13, aarch64, SM12.1）前提にし、GPU `deploy.resources.reservations`・モデルボリューム・ヘルスチェックを定義。モックは `profile=mock` として分離。
+- [x] docker compose を実プロバイダ構成に更新: `docker-compose.yml` を gpt-oss-20b (llama.cpp / llama-server) / whisper.cpp / Open Audio S1 (Fish Speech) / llama.cpp embedding（CUDA13, aarch64, SM12.1）前提にし、GPU `deploy.resources.reservations`・モデルボリューム・ヘルスチェックを定義。モックは `profile=mock` として分離。
 - [x] `config/providers.yaml` を本番想定値で再定義: 環境変数プレースホルダ化し、`.env.default` に各キー/パラメータを追加。`load_providers_config` で未解決プレースホルダを検出するように変更。
-- [x] プロバイダランタイムの用意: `docs/03_implementation/production_runtime.md` に Qwen3 NIM / whisper.cpp / Open Audio S1 / llama.cpp embedding のモデル取得と起動手順を記載。
+- [x] プロバイダランタイムの用意: `docs/03_implementation/production_runtime.md` に gpt-oss-20b + llama.cpp / whisper.cpp / Open Audio S1 / llama.cpp embedding のモデル取得と起動手順を記載。
 - [x] RAG/Embedding パイプラインの整合性確認: ingest ジョブを `/data` へ書き出す手順を文書化し、実 Embedding API 接続前提のコマンドを提示。
 - [ ] 本番相当のレイテンシ計測: 実プロバイダ接続で `partial`/`final`/`tts_start` の p95 を 10〜20 サンプル計測し、`docs/01_project/tasks/status/in_progress.md` の確認タスクを埋める（手順は `production_runtime.md` に追記済み、実測は未実施）。
 - [x] フォールバック検出の強化: `/health` `/ready` で `is_mock`/`fallback_count` を返却し、検知時は `warnings` 付きで `status=degraded` とする。
@@ -76,5 +76,5 @@
 ## リスク/課題メモ
 - GPU 非搭載環境での dev: STT/TTS をモックまたは軽量モデルに差し替える選択肢を残す。
 - Opus エンコード/デコードのブラウザ互換性（WebCodecs/AudioWorklet）の実装コスト。
-- LLM レイテンシ: Qwen3-32B が重い場合の代替モデル/パラメータ調整が必要。
-- モデル配布とライセンス: Qwen3 / Open Audio S1 / whisper.cpp のモデル取得・配布条件を満たす運用フローが必要。
+- LLM レイテンシ: gpt-oss-20b が重い場合の量子化/パラメータ調整が必要。
+- モデル配布とライセンス: gpt-oss-20b / Open Audio S1 / whisper.cpp のモデル取得・配布条件を満たす運用フローが必要。

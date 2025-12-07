@@ -121,20 +121,45 @@ services:
       - dev
 
   llm:
-    image: ${LLM_IMAGE:-nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest}
-    platform: ${LLM_PLATFORM:-linux/aarch64}
+    image: ${LLM_IMAGE:-local/gpt-oss-llm:cuda}
+    build:
+      context: .
+      dockerfile: docker/llm-llama/Dockerfile
+      target: server
+      args:
+        UBUNTU_VERSION: "${LLM_UBUNTU_VERSION:-24.04}"
+        CUDA_VERSION: "${LLM_CUDA_VERSION:-13.0.2}"
+        CUDA_DOCKER_ARCH: "${LLM_CUDA_ARCH:-121}"
+        LLAMA_CPP_REPO: "${LLAMA_CPP_REPO:-https://github.com/ggml-org/llama.cpp.git}"
+        LLAMA_CPP_REF: "${LLAMA_CPP_REF:-}"
+    platform: ${LLM_PLATFORM:-linux/arm64}
     container_name: vrm-llm
     restart: unless-stopped
     <<: *nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - NGC_API_KEY=${NGC_API_KEY}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
-      - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/opt/nim/workspace}
+      - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/models}:ro
     ports:
-      - "${LLM_LOCAL_PORT:-18000}:${LLM_PORT:-8000}"
+      - "${LLM_LOCAL_PORT:-18000}:${LLM_PORT:-8080}"
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "${LLM_PORT:-8080}"
+      - -m
+      - "${LLM_MODEL:-/models/gpt-oss-20b.gguf}"
+      - --ctx-size
+      - "${LLM_CTX_SIZE:-16384}"
+      - --threads
+      - "${LLM_THREADS:--1}"
+      - --n-gpu-layers
+      - "${LLM_N_GPU_LAYERS:-99}"
+      - --flash-attn
+      - "${LLM_FLASH_ATTN:-auto}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:18000/v1/health/ready || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:${LLM_PORT:-8080}/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -246,9 +271,9 @@ services:
     profiles:
       - mock
     environment:
-      - PORT=${LLM_PORT:-18000}
+      - PORT=${LLM_PORT:-8080}
     ports:
-      - "${LLM_PORT:-18000}:${LLM_PORT:-18000}"
+      - "${LLM_LOCAL_PORT:-18000}:${LLM_PORT:-8080}"
     networks:
       default:
         aliases:

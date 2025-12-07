@@ -5,7 +5,7 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
 ## できること
 - ブラウザで 3D アバター（three-vrm）を表示し、マイク音声を WebSocket で送信
 - whisper.cpp を用いた日本語対応 STT（partial/final 両方をストリームで返却）
-- LangChain + FAISS による RAG と Qwen3-32B (NIM) ベースの LLM 応答
+- LangChain + FAISS による RAG と gpt-oss-20b (llama.cpp / llama-server) ベースの LLM 応答
 - Open Audio S1 (Fish Speech / OpenVoice) での TTS ストリーミングとローカル再生
 - モデル/プロバイダ設定を `config/providers.yaml`（環境変数埋め込み）で切り替え
 - モックプロファイル（echo-server）で GPU なしの疎通確認
@@ -20,25 +20,26 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
 1. 依存ファイルを用意
    ```bash
    cp .env.default .env
-   # LLM で NIM を使う場合は NGC_API_KEY を .env に設定
+   # `LLM_MODEL` を gpt-oss-20b GGUF のパスに合わせる（デフォルト: /models/gpt-oss-20b.gguf）
    ```
    - Backend 依存は `backend/requirements.dev.txt` にあり、`UploadFile`/Form 用に `python-multipart` も含めています。
    - 起動時は `COMPOSE_PROFILES` に `prod` / `dev` / `mock` のいずれかを指定してください（以下は `prod` 例）。
 2. モデルを配置（例は `docs/03_implementation/production_runtime.md` を参照）
+   - LLM: `./models/llm` に gpt-oss-20b GGUF を配置し、ファイル名を `.env` の `LLM_MODEL` に合わせる（例: `/models/gpt-oss-20b.gguf`）
    - STT: `./models/stt/ggml-base.bin` など Whisper GGUF
    - TTS: `./models/tts/` に Open Audio S1 mini、話者リファレンスは `./references/tts/`
    - Embedding: `./models/embedding/embd-model.gguf`（nomic-embed-text など）
-   - LLM: `./models/llm` は NIM が起動時に取得（事前に作成しておく）
 3. イメージをビルド（backend/frontend の依存も Dockerfile でまとめておく）
    ```bash
-   COMPOSE_PROFILES=prod docker compose build backend frontend stt tts embedding
+   COMPOSE_PROFILES=prod docker compose build llm backend frontend stt tts embedding
    ```
+   - `llm` は `docker/llm-llama/Dockerfile` で CUDA 13.0 / SM 12.1 向けに llama.cpp をビルドします。
 4. スタックを起動
    ```bash
    COMPOSE_PROFILES=prod docker compose up -d
    ```
 5. 動作確認
-   - LLM ヘルス: `curl http://localhost:18000/v1/health/ready`
+   - LLM ヘルス: `curl http://localhost:18000/health`
    - Backend ready: `curl http://localhost:8000/ready`
    - フロント: `http://<DGXホスト>:5173` にアクセス。WS はアクセス元ホスト + `VITE_BACKEND_PORT`（デフォルト 8000）+ `VITE_WS_PATH`（デフォルト `/ws/session`）から自動組み立てられ、`wss`/`ws` はページのプロトコルに追随します。別ホスト/パスを使う場合は `.env` の `VITE_WS_BASE_URL`（優先）または `VITE_BACKEND_HOST`/`VITE_BACKEND_PORT`/`VITE_WS_PATH` を設定してください。
 

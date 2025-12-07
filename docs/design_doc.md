@@ -3,7 +3,7 @@
 * 対象HW: DGX Spark 1台（複数GPU想定）
 * 主な技術スタック
 
-  * LLM: Qwen2.5/Qwen3 32B (NIM, aarch64, cu130/SM 12.1)
+  * LLM: gpt-oss-20b (llama.cpp, CUDA 13.0, SM 12.1)
   * RAG: LangChain + FAISS
   * STT: whisper.cpp (CUDA 対応ビルド、ggml/GGUF モデル)
   * TTS: Open Audio S1 (Fish Speech / OpenVoice, CUDA 13.0)
@@ -93,8 +93,8 @@
 
 3. **LLM Service**
 
-   * NIM コンテナで Qwen 32B Instruct（aarch64, cu130, SM 12.1）をホスト
-   * OpenAI 互換の Chat Completion API を HTTP で提供（`http://llm:8000/v1`）
+   * llama.cpp (CUDA 13.0, SM 12.1) で gpt-oss-20b GGUF を `llama-server` としてホスト
+   * OpenAI 互換の Chat Completion API を HTTP で提供（`http://llm:8080/v1`）
    * 別 LLM サーバ（クラウド API 含む）に差し替え可能な形を維持
 
 4. **RAG / Vector Store**
@@ -253,7 +253,7 @@ class LlmProvider(Protocol):
 
 実装例:
 
-* `LocalGptOss120bProvider`（llm コンテナの OpenAI 互換 API を叩く）
+* `LocalGptOss20bProvider`（llm コンテナの OpenAI 互換 API を叩く）
 * `RemoteOpenAiProvider`（将来の拡張、OpenAI / Azure 等）
 
 > **ポイント：**
@@ -338,9 +338,9 @@ class TtsProvider(Protocol):
 
 ```yaml
 llm:
-  provider: "nim-qwen3"
-  endpoint: "http://llm:8000/v1"
-  model: "qwen3-32b-instruct"
+  provider: "llama-cpp-gpt-oss-20b"
+  endpoint: "http://llm:8080/v1"
+  model: "/models/gpt-oss-20b.gguf"
 
 stt:
   provider: "whisper-cpp"
@@ -528,7 +528,7 @@ FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider �
 
 - `frontend` : Node 20 上で Vite ビルド + preview（pnpm をコンテナ内で実行）
 - `backend` : FastAPI Orchestrator（python:3.12-slim）
-- `llm` : NIM Qwen 32B Instruct（nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest, aarch64, cu130/SM 12.1）
+- `llm` : llama.cpp (CUDA 13.0, SM 12.1) で gpt-oss-20b GGUF を `llama-server` 起動
 - `stt` : whisper.cpp CUDA ビルド (`whisper-server`)、ggml/GGUF モデルを `/models` にマウント
 - `tts` : Fish Speech / OpenVoice (Open Audio S1 mini) CUDA 13.0 サーバ
 - `embedding` : llama.cpp embedding サーバ（GGUF, CUDA 13.0）
@@ -537,9 +537,9 @@ FastAPI 起動時にこの設定を読み込み、DI コンテナで Provider �
 
 ### 8.2 GPU / プラットフォーム方針
 
-- DGX Spark (aarch64, CUDA 13.0, SM 12.1) を前提に、`deploy.resources.reservations.devices` で GPU を各サービス 1 枚ずつ確保（llm/stt/tts/embedding）。
-- STT/TTS/Embedding のビルドベースは `nvidia/cuda:13.0.2-devel-ubuntu24.04`。LLM は `platform=linux/aarch64` の NIM イメージを使用。
-- LLM のモデルキャッシュは `/opt/nim/workspace` を `./models/llm` にバインド。`NGC_API_KEY` を `.env` に設定し、NIM がモデルを自動取得する前提。
+- DGX Spark (aarch64, CUDA 13.0, SM 12.1) を前提に、`deploy.resources.reservations.devices` で GPU を各サービス 1 枚（llm は `count: all`）ずつ確保。
+- STT/TTS/Embedding/LLM のビルドベースは `nvidia/cuda:13.0.2-devel-ubuntu24.04`。LLM は `docker/llm-llama/Dockerfile` で CMAKE_CUDA_ARCHITECTURES=121 を指定して llama.cpp をビルドする。
+- LLM の GGUF は `/models` にバインド（例: `./models/llm/gpt-oss-20b.gguf`）。STT/TTS/Embedding は `./models/{stt,tts,embedding}` を `/models` / `/app/checkpoints` にマウントし、GGUF/音声モデル/リファレンス音声を事前配置する。
 - STT/TTS/Embedding は `./models/{stt,tts,embedding}` を `/models` / `/app/checkpoints` にマウントし、GGUF/音声モデル/リファレンス音声を事前配置する。
 
 ### 8.3 docker-compose.yml（現行の要点）
@@ -619,18 +619,49 @@ services:
         condition: service_started
 
   llm:
-    image: ${LLM_IMAGE:-nvcr.io/nim/qwen/qwen3-32b-dgx-spark:latest}
-    platform: ${LLM_PLATFORM:-linux/aarch64}
-    <<: *nvidia
+    image: ${LLM_IMAGE:-local/gpt-oss-llm:cuda}
+    build:
+      context: .
+      dockerfile: docker/llm-llama/Dockerfile
+      target: server
+      args:
+        UBUNTU_VERSION: "${LLM_UBUNTU_VERSION:-24.04}"
+        CUDA_VERSION: "${LLM_CUDA_VERSION:-13.0.2}"
+        CUDA_DOCKER_ARCH: "${LLM_CUDA_ARCH:-121}"
+        LLAMA_CPP_REPO: "${LLAMA_CPP_REPO:-https://github.com/ggml-org/llama.cpp.git}"
+        LLAMA_CPP_REF: "${LLAMA_CPP_REF:-}"
+    platform: ${LLM_PLATFORM:-linux/arm64}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - NGC_API_KEY=${NGC_API_KEY}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
-      - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/opt/nim/workspace}
+      - ${LLM_MODEL_LOCAL_DIR:-./models/llm}:${LLM_MODEL_DIR:-/models}:ro
     ports:
-      - "${LLM_LOCAL_PORT:-18000}:${LLM_PORT:-8000}"
+      - "${LLM_LOCAL_PORT:-18000}:${LLM_PORT:-8080}"
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "${LLM_PORT:-8080}"
+      - -m
+      - "${LLM_MODEL:-/models/gpt-oss-20b.gguf}"
+      - --ctx-size
+      - "${LLM_CTX_SIZE:-16384}"
+      - --threads
+      - "${LLM_THREADS:--1}"
+      - --n-gpu-layers
+      - "${LLM_N_GPU_LAYERS:-99}"
+      - --flash-attn
+      - "${LLM_FLASH_ATTN:-auto}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:18000/v1/health/ready || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:${LLM_PORT:-8080}/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -715,12 +746,12 @@ services:
     image: docker.io/ealen/echo-server:latest
     profiles: [mock]
     environment:
-      - PORT=${LLM_PORT:-8000}
+      - PORT=${LLM_PORT:-8080}
     networks:
       default:
         aliases: [llm]
     ports:
-      - "${LLM_PORT:-8000}:${LLM_PORT:-8000}"
+      - "${LLM_LOCAL_PORT:-18000}:${LLM_PORT:-8080}"
 
   stt-mock:
     image: docker.io/ealen/echo-server:latest
@@ -760,7 +791,7 @@ volumes:
   postgres_data:
 ```
 
-> モデルを `./models` 配下に配置し、`.env` のパラメータ（NGC_API_KEY, *_MODEL, *_PORT, *_PLATFORM など）を埋めたうえで `COMPOSE_PROFILES=prod docker compose up -d`。モックでの疎通確認は `COMPOSE_PROFILES=mock docker compose up -d` を利用する。
+> モデルを `./models` 配下に配置し、`.env` のパラメータ（LLM_MODEL, *_MODEL, *_PORT, *_PLATFORM など）を埋めたうえで `COMPOSE_PROFILES=prod docker compose up -d`。モックでの疎通確認は `COMPOSE_PROFILES=mock docker compose up -d` を利用する。
 
 ---
 

@@ -124,10 +124,16 @@ class LLMClient:
 
         delta = choices[0].get("delta") or {}
         if "content" in delta:
-            return str(delta["content"])
+            content = delta.get("content")
+            if content is None:
+                return ""
+            return str(content)
 
         message = choices[0].get("message") or {}
-        return str(message.get("content") or "")
+        content = message.get("content")
+        if content is None:
+            return ""
+        return str(content)
 
     async def _fallback_response(
         self, messages: list[ChatMessage]
