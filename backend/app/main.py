@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.api import dependencies
@@ -68,6 +69,13 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.include_router(text_chat.router, prefix="/api/v1")
 app.include_router(diagnostics.router, prefix="/api/v1")
