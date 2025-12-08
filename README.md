@@ -71,6 +71,7 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
 
 ## 設定のポイント
 - `.env` にポート/モデルパス/プロバイダエンドポイントを集約（Node は pnpm、Python は 3.12 を想定）。
+- デフォルト VRM は `frontend/public/AliciaSolid.vrm` に配置した [アリシア・ソリッド](https://3d.nicovideo.jp/alicia/) を読み込みます。別モデルを使う場合はこのファイルを差し替えてください。
 - フロントエンドの接続先は `.env` で `VITE_WS_BASE_URL` を指定するか、`VITE_BACKEND_HOST`/`VITE_BACKEND_PORT`/`VITE_WS_PATH` を組み合わせて設定できます（未指定時はアクセス元ホスト + port 8000 + `/ws/session` を自動利用）。
 - `config/providers.yaml` は環境変数参照で、`load_providers_config` が未解決プレースホルダを検出します。
 - RAG インデックス作成例:

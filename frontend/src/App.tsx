@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type MutableRefObject,
+  type ChangeEvent,
   type ReactNode
 } from 'react'
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
@@ -21,6 +22,7 @@ import {
   ChevronUp,
   FlaskConical,
   History,
+  Upload,
   Mic,
   MicOff,
   Plug,
@@ -462,6 +464,8 @@ function App() {
   const mouthRafRef = useRef<number | null>(null)
   const currentTurnIdRef = useRef<string | null>(null)
   const messageQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const vrmFileInputRef = useRef<HTMLInputElement | null>(null)
+  const localVrmObjectUrlRef = useRef<string | null>(null)
 
   const micSupported = useMemo(() => {
     if (typeof navigator === 'undefined') return false
@@ -512,6 +516,10 @@ function App() {
       wsRef.current?.close()
       stopMic()
       stopAudioMeter()
+      if (localVrmObjectUrlRef.current) {
+        URL.revokeObjectURL(localVrmObjectUrlRef.current)
+        localVrmObjectUrlRef.current = null
+      }
     }
   }, [])
 
@@ -573,6 +581,31 @@ function App() {
       const next = [...prev, { time: new Date().toLocaleTimeString(), text }]
       return next.slice(-80)
     })
+  }
+
+  const updateVrmUrl = (nextUrl: string, options: { isLocal?: boolean } = {}) => {
+    if (localVrmObjectUrlRef.current && localVrmObjectUrlRef.current !== nextUrl) {
+      URL.revokeObjectURL(localVrmObjectUrlRef.current)
+      localVrmObjectUrlRef.current = null
+    }
+    if (options.isLocal) {
+      localVrmObjectUrlRef.current = nextUrl
+    }
+    setVrmUrl(nextUrl)
+  }
+
+  const handleVrmFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      const objectUrl = URL.createObjectURL(file)
+      updateVrmUrl(objectUrl, { isLocal: true })
+      appendLog(`vrm: ローカルファイルを読み込み (${file.name})`)
+    }
+    event.target.value = ''
+  }
+
+  const openVrmFilePicker = () => {
+    vrmFileInputRef.current?.click()
   }
 
   const mapCharacter = (data: {
@@ -1643,6 +1676,16 @@ function App() {
           </div>
         ) : null}
         <div className="remote-chips compact">
+          <button className="remote-chip" onClick={openVrmFilePicker} aria-label="VRM を読み込む">
+            <Upload size={18} />
+          </button>
+          <input
+            ref={vrmFileInputRef}
+            type="file"
+            accept=".vrm,.glb,.gltf,model/gltf-binary,model/gltf+json"
+            onChange={handleVrmFileChange}
+            style={{ display: 'none' }}
+          />
           <button
             className={`remote-chip ${connectionDrawerOpen ? 'active' : ''}`}
             onClick={() => setConnectionDrawerOpen((open) => !open)}
@@ -1781,7 +1824,7 @@ function App() {
                   </div>
                   <div className="field">
                     <label>VRM URL</label>
-                    <input value={vrmUrl} onChange={(e) => setVrmUrl(e.target.value)} placeholder="https://...vrm" />
+                    <input value={vrmUrl} onChange={(e) => updateVrmUrl(e.target.value)} placeholder="https://...vrm" />
                   </div>
                 </div>
                 <div className="actions">
