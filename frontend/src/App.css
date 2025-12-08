@@ -383,7 +383,7 @@ h4 {
 
 .stream-fab {
   position: fixed;
-  bottom: 96px;
+  bottom: 18px;
   right: 16px;
   width: min(360px, 90vw);
   padding: 10px 12px;
@@ -467,10 +467,6 @@ h4 {
   border: 1px dashed rgba(148, 163, 184, 0.6);
   padding: 6px 8px;
   border-radius: 10px;
-}
-
-.collapsed-hint {
-  opacity: 0.9;
 }
 
 .latency-grid.mini strong {
@@ -798,7 +794,7 @@ button:disabled {
 }
 
 .diagnostics {
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.06), rgba(16, 185, 129, 0.05));
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.8), rgba(16, 185, 129, 0.5));
 }
 
 .diag-headline {
@@ -1092,6 +1088,12 @@ button:disabled {
   background: rgba(0, 0, 0, 0.4);
   padding: 8px 12px;
   border-radius: 10px;
+}
+
+@media (max-width: 1400px) {
+  .stream-fab {
+    bottom: 96px
+  }
 }
 
 @media (max-width: 768px) {

@@ -1753,18 +1753,7 @@ function App() {
               </div>
             ) : null}
           </>
-        ) : isMobile ? null : (
-          <div className="stream-mini collapsed-hint">
-            <div className="stream-row">
-              <span className="label">partial</span>
-              <p className="mono tiny text-ellipsis">{partial || '—'}</p>
-            </div>
-            <div className="stream-row">
-              <span className="label">assistant</span>
-              <p className="mono tiny text-ellipsis assistant">{latestTurn?.assistantText || '—'}</p>
-            </div>
-          </div>
-        )}
+        ) : null}
       </div>
 
       <div className="ui-overlay">
