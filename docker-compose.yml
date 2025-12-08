@@ -84,6 +84,7 @@ services:
         VITE_BACKEND_HOST: ${VITE_BACKEND_HOST:-}
         VITE_BACKEND_PORT: ${VITE_BACKEND_PORT:-8000}
         VITE_WS_PATH: ${VITE_WS_PATH:-/ws/session}
+        VITE_NO_BACKEND_PORT: ${VITE_NO_BACKEND_PORT:-}
     container_name: vrm-frontend
     restart: unless-stopped
     <<: *common-env
@@ -105,6 +106,7 @@ services:
         VITE_BACKEND_HOST: ${VITE_BACKEND_HOST:-}
         VITE_BACKEND_PORT: ${VITE_BACKEND_PORT:-8000}
         VITE_WS_PATH: ${VITE_WS_PATH:-/ws/session}
+        VITE_NO_BACKEND_PORT: ${VITE_NO_BACKEND_PORT:-}
     container_name: vrm-frontend-dev
     working_dir: /workspace/frontend
     command: ["sh", "-c", "pnpm dev --host --port ${FRONTEND_PORT:-5173}"]

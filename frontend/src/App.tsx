@@ -15,7 +15,20 @@ import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { Box3, PerspectiveCamera, Vector3 } from 'three'
 import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { FlaskConical, Mic, MicOff, Plug, PlugZap, ScrollText, Settings2, UserRound } from 'lucide-react'
+import {
+  Activity,
+  ChevronDown,
+  ChevronUp,
+  FlaskConical,
+  History,
+  Mic,
+  MicOff,
+  Plug,
+  PlugZap,
+  ScrollText,
+  Settings2,
+  UserRound,
+} from 'lucide-react'
 import './App.css'
 
 type WsState = 'disconnected' | 'connecting' | 'connected'
@@ -145,7 +158,8 @@ const resolveDefaultWsBaseUrl = () => {
     (typeof window !== 'undefined' && window.location.hostname) ||
     'localhost'
   const envPort = import.meta.env.VITE_BACKEND_PORT
-  const port = envPort === '' ? '' : envPort ?? '8000'
+  const noBackendPort = import.meta.env.VITE_NO_BACKEND_PORT
+  const port = envPort === '' || noBackendPort ? '' : envPort ?? '8000'
   const protocol =
     typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const portPart = port ? `:${port}` : ''
@@ -163,7 +177,8 @@ const resolveDefaultApiBaseUrl = () => {
     (typeof window !== 'undefined' && window.location.hostname) ||
     'localhost'
   const envPort = import.meta.env.VITE_BACKEND_PORT
-  const port = envPort === '' ? '' : envPort ?? '8000'
+  const noBackendPort = import.meta.env.VITE_NO_BACKEND_PORT
+  const port = envPort === '' || noBackendPort ? '' : envPort ?? '8000'
   const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https:' : 'http:'
   const apiPath = normalizePath(import.meta.env.VITE_API_BASE_PATH ?? DEFAULT_API_BASE_PATH, DEFAULT_API_BASE_PATH)
   const portPart = port ? `:${port}` : ''
@@ -172,6 +187,7 @@ const resolveDefaultApiBaseUrl = () => {
 }
 
 const DEFAULT_API_BASE_URL = resolveDefaultApiBaseUrl()
+const isMobileViewport = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
 
 type CanvasErrorBoundaryProps = { resetKey?: string; onError?: (error: Error) => void; children: ReactNode }
 type CanvasErrorBoundaryState = { error: Error | null }
@@ -432,6 +448,9 @@ function App() {
   const [logsDrawerOpen, setLogsDrawerOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [showLatencyPanel, setShowLatencyPanel] = useState(false)
+  const [isMobile, setIsMobile] = useState(isMobileViewport())
+  const [remoteCollapsed, setRemoteCollapsed] = useState(isMobileViewport())
+  const [streamCollapsed, setStreamCollapsed] = useState(isMobileViewport())
   const wsRef = useRef<WebSocket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const ttsBuffersRef = useRef<Uint8Array[]>([])
@@ -514,6 +533,35 @@ function App() {
       }
     }
   }, [ttsAudioUrl])
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(isMobileViewport())
+    handleResize()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', handleResize)
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', handleResize)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isMobile) {
+      setRemoteCollapsed(true)
+      setStreamCollapsed(true)
+      setConnectionDrawerOpen(false)
+      setPersonaDrawerOpen(false)
+      setDiagnosticsDrawerOpen(false)
+      setLogsDrawerOpen(false)
+      setHistoryOpen(false)
+      setShowLatencyPanel(false)
+    } else {
+      setRemoteCollapsed(false)
+      setStreamCollapsed(false)
+    }
+  }, [isMobile])
 
   const mouthOpen = useMemo(() => Math.min(1, Math.max(audioMouth, avatarMouth)), [audioMouth, avatarMouth])
   const latestTurn = chatTurns.at(-1)
@@ -1551,15 +1599,16 @@ function App() {
         </CanvasErrorBoundary>
       </div>
 
-      <div className="remote-fab glass-panel">
-        <div className="remote-row compact">
+      <div className="control-dock glass-panel">
+        <div className="control-row">
           <button
             className={`icon-button ${state === 'connected' ? 'active' : ''}`}
             onClick={state === 'connected' ? disconnect : connect}
             disabled={state === 'connecting'}
             aria-label={state === 'connected' ? 'Disconnect' : 'Connect'}
           >
-            {state === 'connected' ? <Plug size={16} /> : <PlugZap size={16} />}
+            {state === 'connected' ? <Plug size={20} /> : <PlugZap size={20} />}
+            {!isMobile ? <span>{state === 'connected' ? 'Disconnect' : 'Connect'}</span> : null}
           </button>
           <button
             className={`icon-button ${micActive ? 'hot' : ''}`}
@@ -1567,114 +1616,155 @@ function App() {
             disabled={state !== 'connected' || (!micActive && !micSupported)}
             aria-label={micActive ? '録音停止' : '録音開始'}
           >
-            {micActive ? <MicOff size={16} /> : <Mic size={16} />}
+            {micActive ? <MicOff size={20} /> : <Mic size={20} />}
+            {!isMobile ? <span>{micActive ? '録音停止' : '録音開始'}</span> : null}
           </button>
-          <button className="ghost compact" onClick={() => setCameraResetKey((key) => key + 1)} disabled={!avatarName}>
-            視点
+          <button className="ghost control-aux" onClick={() => setCameraResetKey((key) => key + 1)} disabled={!avatarName}>
+            <Activity size={20} />
+            {!isMobile ? <span>視点リセット</span> : null}
           </button>
-          <span className={`pill state-${state}`}>{state}</span>
-          <span className={`pill ${micActive ? 'pill-hot' : ''}`}>mic {micActive ? 'on' : 'off'}</span>
-          <span className="pill pill-soft">mouth {mouthOpen.toFixed(2)}</span>
+          <span className={`pill control-pill state-${state}`} aria-label={`state-${state}`}>
+            {state === 'connected' ? <Plug size={20} /> : state === 'connecting' ? <PlugZap size={20} /> : <Plug size={20} />}
+            {!isMobile ? <span className="pill-label">{state}</span> : null}
+          </span>
+          <span className={`pill control-pill ${micActive ? 'pill-hot' : ''}`} aria-label={`mic-${micActive ? 'on' : 'off'}`}>
+            {micActive ? <Mic size={20} /> : <MicOff size={20} />}
+            {!isMobile ? <span className="pill-label">mic {micActive ? 'on' : 'off'}</span> : null}
+          </span>
         </div>
+      </div>
+
+      <div className={`remote-fab glass-panel ${remoteCollapsed ? 'collapsed' : ''}`}>
+        {!isMobile ? (
+          <div className="fab-head">
+            <div>
+              <div className="eyebrow">設定 / ログ</div>
+            </div>
+          </div>
+        ) : null}
         <div className="remote-chips compact">
           <button
             className={`remote-chip ${connectionDrawerOpen ? 'active' : ''}`}
             onClick={() => setConnectionDrawerOpen((open) => !open)}
             aria-label="接続 / ソース"
           >
-            <Settings2 size={16} />
+            <Settings2 size={18} />
           </button>
           <button
             className={`remote-chip ${personaDrawerOpen ? 'active' : ''}`}
             onClick={() => setPersonaDrawerOpen((open) => !open)}
             aria-label="キャラクター"
           >
-            <UserRound size={16} />
+            <UserRound size={18} />
           </button>
           <button
             className={`remote-chip ${diagnosticsDrawerOpen ? 'active' : ''}`}
             onClick={() => setDiagnosticsDrawerOpen((open) => !open)}
             aria-label="Diagnostics"
           >
-            <FlaskConical size={16} />
+            <FlaskConical size={18} />
           </button>
           <button
             className={`remote-chip ${logsDrawerOpen ? 'active' : ''}`}
             onClick={() => setLogsDrawerOpen((open) => !open)}
             aria-label="WS / オーディオ"
           >
-            <ScrollText size={16} />
+            <ScrollText size={18} />
+          </button>
+          <button className="remote-chip collapse-toggle" onClick={() => setRemoteCollapsed((open) => !open)}>
+            {isMobile ? (remoteCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />) : remoteCollapsed ? '収納' : '展開'}
           </button>
         </div>
-        <div className="remote-meta compact">
-          <p className="mono tiny">{avatarName ?? 'VRM'}</p>
-          <div className="meter mini">
-            <div className="bar" style={{ width: `${mouthOpen * 100}%` }} />
-          </div>
-        </div>
-      </div>
-
-      <div className="stream-fab glass-panel">
-        <div className="stream-head">
-          <div>
-            <div className="eyebrow">STT / LLM</div>
-            <h4>最新</h4>
-          </div>
-          <div className="stream-actions">
-            <button className="ghost compact" onClick={() => setHistoryOpen((open) => !open)}>
-              {historyOpen ? 'history ▲' : 'history ▼'}
-            </button>
-            <button className="ghost compact" onClick={() => setShowLatencyPanel((open) => !open)}>
-              {showLatencyPanel ? 'latency ▲' : 'latency ▼'}
-            </button>
-          </div>
-        </div>
-        <div className="stream-mini">
-          <div className="stream-row">
-            <span className="label">partial</span>
-            <p className="mono tiny text-ellipsis">{partial || '—'}</p>
-          </div>
-          <div className="stream-row">
-            <span className="label">user</span>
-            <p className="mono tiny text-ellipsis">{latestTurn?.userText || '—'}</p>
-          </div>
-          <div className="stream-row">
-            <span className="label">assistant</span>
-            <p className="mono tiny text-ellipsis assistant">{latestTurn?.assistantText || '—'}</p>
-          </div>
-        </div>
-        {showLatencyPanel ? (
-          <div className="latency-card mini">
-            <div className="latency-grid">
-              <div>
-                <span>STT</span>
-                <strong>{latency.stt ?? '—'}</strong>
-              </div>
-              <div>
-                <span>LLM</span>
-                <strong>{latency.llm ?? '—'}</strong>
-              </div>
-              <div>
-                <span>TTS</span>
-                <strong>{latency.tts ?? '—'}</strong>
-              </div>
+        {!remoteCollapsed ? (
+          <div className="remote-meta compact">
+            <p className="mono tiny">{avatarName ?? 'VRM'}</p>
+            <div className="meter mini">
+              <div className="bar" style={{ width: `${mouthOpen * 100}%` }} />
             </div>
           </div>
         ) : null}
-        {historyOpen ? (
-          <div className="history-list mini">
-            {chatTurns
-              .slice()
-              .reverse()
-              .map((turn) => (
-                <div key={turn.id} className="history-card">
-                  <p className="mono tiny text-ellipsis">{turn.userText || '（user textなし）'}</p>
-                  <p className="mono tiny text-ellipsis assistant">{turn.assistantText || '応答なし'}</p>
-                </div>
-              ))}
-            {!chatTurns.length ? <p className="hint tiny">履歴なし</p> : null}
+      </div>
+
+      <div className={`stream-fab glass-panel ${streamCollapsed ? 'collapsed' : ''}`}>
+        <div className="stream-head">
+          {!isMobile ? (
+            <div>
+              <div className="eyebrow">STT / LLM</div>
+            </div>
+          ) : null}
+          <div className="stream-actions">
+            <button className="ghost compact" onClick={() => setHistoryOpen((open) => !open)} disabled={streamCollapsed}>
+              {isMobile ? <History size={18} /> : historyOpen ? 'history ▲' : 'history ▼'}
+            </button>
+            <button className="ghost compact" onClick={() => setShowLatencyPanel((open) => !open)} disabled={streamCollapsed}>
+              {isMobile ? <Activity size={18} /> : showLatencyPanel ? 'latency ▲' : 'latency ▼'}
+            </button>
+            <button className="ghost compact collapse-action" onClick={() => setStreamCollapsed((open) => !open)}>
+              {isMobile ? (streamCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />) : streamCollapsed ? '展開' : '収納'}
+            </button>
           </div>
-        ) : null}
+        </div>
+        {!streamCollapsed ? (
+          <>
+            <div className="stream-mini">
+              <div className="stream-row">
+                <span className="label">partial</span>
+                <p className="mono tiny text-ellipsis">{partial || '—'}</p>
+              </div>
+              <div className="stream-row">
+                <span className="label">user</span>
+                <p className="mono tiny text-ellipsis">{latestTurn?.userText || '—'}</p>
+              </div>
+              <div className="stream-row">
+                <span className="label">assistant</span>
+                <p className="mono tiny text-ellipsis assistant">{latestTurn?.assistantText || '—'}</p>
+              </div>
+            </div>
+            {showLatencyPanel ? (
+              <div className="latency-card mini">
+                <div className="latency-grid">
+                  <div>
+                    <span>STT</span>
+                    <strong>{latency.stt ?? '—'}</strong>
+                  </div>
+                  <div>
+                    <span>LLM</span>
+                    <strong>{latency.llm ?? '—'}</strong>
+                  </div>
+                  <div>
+                    <span>TTS</span>
+                    <strong>{latency.tts ?? '—'}</strong>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {historyOpen ? (
+              <div className="history-list mini">
+                {chatTurns
+                  .slice()
+                  .reverse()
+                  .map((turn) => (
+                    <div key={turn.id} className="history-card">
+                      <p className="mono tiny text-ellipsis">{turn.userText || '（user textなし）'}</p>
+                      <p className="mono tiny text-ellipsis assistant">{turn.assistantText || '応答なし'}</p>
+                    </div>
+                  ))}
+                {!chatTurns.length ? <p className="hint tiny">履歴なし</p> : null}
+              </div>
+            ) : null}
+          </>
+        ) : isMobile ? null : (
+          <div className="stream-mini collapsed-hint">
+            <div className="stream-row">
+              <span className="label">partial</span>
+              <p className="mono tiny text-ellipsis">{partial || '—'}</p>
+            </div>
+            <div className="stream-row">
+              <span className="label">assistant</span>
+              <p className="mono tiny text-ellipsis assistant">{latestTurn?.assistantText || '—'}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="ui-overlay">
