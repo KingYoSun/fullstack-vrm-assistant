@@ -28,7 +28,7 @@ import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loade
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { useAppStore } from '../../store/appStore'
 import type { MotionDiagResult } from '../../types/app'
-import { loadVrmaClip } from '../../utils/vrmaLoader'
+import { loadVrmaClip, retargetVrmaClip } from '../../utils/vrmaLoader'
 
 type VrmModelProps = {
   url: string
@@ -341,16 +341,17 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
     loadVrmaClip(vrmaUrl, vrm)
       .then((clip) => {
         if (aborted || !clip || !mixerRef.current) return
+        const retargeted = retargetVrmaClip(clip, vrm)
         if (lastActionRef.current) {
           lastActionRef.current.stop()
         }
-        const action = mixerRef.current.clipAction(clip)
+        const action = mixerRef.current.clipAction(retargeted)
         action.reset()
         action.setLoop(LoopOnce, 1)
         action.clampWhenFinished = true
         action.play()
         lastActionRef.current = action
-        appendLog(`vrma: play ${vrmaUrl} (${clip.tracks.length} tracks)`)
+        appendLog(`vrma: play ${vrmaUrl} (${retargeted.tracks.length} tracks)`)
       })
       .catch((err) => {
         if (!aborted) {

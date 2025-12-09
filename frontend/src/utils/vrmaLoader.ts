@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import type { AnimationClip, KeyframeTrack } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { VRM } from '@pixiv/three-vrm'
 
@@ -28,7 +29,7 @@ const allCandidates = Object.entries(BONES_NAME_LIST).flatMap(([key, aliases]) =
   aliases.map((alias) => [alias.toLowerCase(), key] as const),
 )
 
-const remapTrackNames = (clip: THREE.AnimationClip) => {
+const remapTrackNames = (clip: AnimationClip) => {
   clip.tracks.forEach((track) => {
     const match = track.name.match(/^(.+)\.(position|quaternion|scale)$/)
     if (!match) return
@@ -42,7 +43,7 @@ const remapTrackNames = (clip: THREE.AnimationClip) => {
   })
 }
 
-export async function loadVrmaClip(url: string, _vrm: VRM): Promise<THREE.AnimationClip> {
+export async function loadVrmaClip(url: string, _vrm: VRM): Promise<AnimationClip> {
   const loader = new GLTFLoader()
   const gltf = await loader.loadAsync(url)
   const clip = gltf.animations?.[0]
@@ -52,4 +53,28 @@ export async function loadVrmaClip(url: string, _vrm: VRM): Promise<THREE.Animat
   // Track を HumanBone 名に揃える
   remapTrackNames(clip)
   return clip
+}
+
+const resolveHumanBone = (base: string): string | null => {
+  const lower = base.toLowerCase()
+  const hit = allCandidates.find(([alias]) => alias === lower)
+  return hit ? hit[1] : null
+}
+
+export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): AnimationClip => {
+  const humanoid = vrm.humanoid
+  if (!humanoid) return clip
+  const filtered: KeyframeTrack[] = []
+  clip.tracks.forEach((track) => {
+    const match = track.name.match(/^(.+)\.(position|quaternion|scale)$/)
+    if (!match) return
+    const base = match[1]
+    const prop = match[2]
+    const humanBone = resolveHumanBone(base) ?? base
+    const node = humanoid.getNormalizedBoneNode(humanBone as never)
+    if (!node) return
+    track.name = `${node.name}.${prop}`
+    filtered.push(track)
+  })
+  return new THREE.AnimationClip(clip.name || 'vrma', clip.duration, filtered)
 }
