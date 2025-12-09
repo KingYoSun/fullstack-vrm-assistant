@@ -69,6 +69,7 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult): AnimationClip | nu
     if (!Array.isArray(frames) || frames.length === 0) return
     const node = humanoid.getBoneNode(bone as never)
     if (!node) return
+    const target = `${node.uuid}.quaternion`
     const times = toTimes(frames)
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
@@ -79,7 +80,7 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult): AnimationClip | nu
       values[offset + 2] = tmpQuat.z
       values[offset + 3] = tmpQuat.w
     })
-    tracks.push(new QuaternionKeyframeTrack(`${node.name}.quaternion`, times, values))
+    tracks.push(new QuaternionKeyframeTrack(target, times, values))
   })
 
   if (motion.rootPosition?.length) {
@@ -93,7 +94,7 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult): AnimationClip | nu
         values[offset + 1] = frame.y ?? 0
         values[offset + 2] = frame.z ?? 0
       })
-      tracks.push(new VectorKeyframeTrack(`${hips.name}.position`, times, values))
+      tracks.push(new VectorKeyframeTrack(`${hips.uuid}.position`, times, values))
     }
   }
 
