@@ -65,13 +65,20 @@ type BoneRest = {
   restWorldInv: Quaternion
 }
 
+const getHumanBones = (vrm: VRM) => {
+  const bones = (vrm.humanoid as unknown as { humanBones?: unknown })?.humanBones
+  if (Array.isArray(bones)) return bones
+  if (bones && typeof bones === 'object') return Object.values(bones as Record<string, unknown>)
+  return []
+}
+
 const computeRestMap = (vrm: VRM): Map<string, BoneRest> => {
   const map = new Map<string, BoneRest>()
   vrm.scene.updateMatrixWorld(true)
-  const humanoidBones = vrm.humanoid?.humanBones ?? []
-  humanoidBones.forEach((humanBone) => {
-    const name = humanBone.humanBoneName
-    const node = humanBone.node
+  const humanoidBones = getHumanBones(vrm)
+  humanoidBones.forEach((humanBone: any) => {
+    const name = humanBone?.humanBoneName
+    const node = humanBone?.node
     if (!name || !node) return
     const restLocal = node.quaternion.clone()
     const restWorld = new Quaternion()
