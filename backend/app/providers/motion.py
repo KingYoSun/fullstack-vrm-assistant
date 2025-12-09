@@ -78,6 +78,7 @@ class MotionClient:
             "provider": self.config.provider,
             "endpoint": self.config.endpoint,
             "fallback_used": fallback_used,
+            "metadata": data.get("metadata") or None,
         }
         return MotionGenerateResponse.model_validate(merged)
 
@@ -127,6 +128,7 @@ class MotionClient:
             provider=self.config.provider,
             endpoint=self.config.endpoint,
             fallback_used=True,
+            metadata={"generator": "fallback"},
         )
 
     def _fallback_tracks(self, duration_sec: float, fps: int) -> dict[str, list[MotionKeyframe]]:
@@ -179,6 +181,7 @@ class MotionClient:
             provider=self.config.provider,
             endpoint=self.config.endpoint,
             fallback_used=True,
+            metadata={"generator": "fallback"},
         )
         output_path.write_text(json.dumps(payload.model_dump(by_alias=True), ensure_ascii=False, indent=2), encoding="utf-8")
         return output_path

@@ -38,5 +38,6 @@ class MotionGenerateResponse(BaseModel):
     provider: str
     endpoint: str
     fallback_used: bool = False
+    metadata: dict | None = None
 
     model_config = ConfigDict(populate_by_name=True)
