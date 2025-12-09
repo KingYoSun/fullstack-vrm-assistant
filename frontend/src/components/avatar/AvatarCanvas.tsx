@@ -72,27 +72,9 @@ const getHumanBones = (vrm: VRM) => {
   return []
 }
 
-const computeRestMap = (vrm: VRM): Map<string, BoneRest> => {
-  const map = new Map<string, BoneRest>()
-  vrm.scene.updateMatrixWorld(true)
-  const humanoidBones = getHumanBones(vrm)
-  humanoidBones.forEach((humanBone: any) => {
-    const name = humanBone?.humanBoneName
-    const node = humanBone?.node
-    if (!name || !node) return
-    if (node.name !== name) {
-      node.name = name
-    }
-    const restLocal = node.quaternion.clone()
-    const restWorld = new Quaternion()
-    node.getWorldQuaternion(restWorld)
-    const restWorldInv = restWorld.clone().invert()
-    map.set(name, { node, restLocal, restWorld, restWorldInv })
-  })
-  return map
-}
+const computeRestMap = (_vrm: VRM): Map<string, BoneRest> => new Map()
 
-const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, restMap: Map<string, BoneRest>): AnimationClip | null => {
+const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, _restMap: Map<string, BoneRest>): AnimationClip | null => {
   const humanoid = vrm.humanoid
   if (!humanoid) return null
 
@@ -102,18 +84,13 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, restMap: Map<string
 
   Object.entries(motion.tracks ?? {}).forEach(([bone, frames]) => {
     if (!Array.isArray(frames) || frames.length === 0) return
-    const node = humanoid.getRawBoneNode(bone as never)
+    const node = humanoid.getNormalizedBoneNode(bone as never)
     if (!node) return
     const target = `${node.name || bone}.quaternion`
     const times = toTimes(frames)
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
       tmpQuat.set(frame.x ?? 0, frame.y ?? 0, frame.z ?? 0, frame.w ?? 1).normalize()
-      const rest = restMap.get(bone)
-      if (rest) {
-        tmpMatQuat.copy(rest.restWorldInv).multiply(tmpQuat).multiply(rest.restWorld)
-        tmpQuat.copy(rest.restLocal).multiply(tmpMatQuat)
-      }
       const offset = idx * 4
       values[offset] = tmpQuat.x
       values[offset + 1] = tmpQuat.y
@@ -124,7 +101,7 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, restMap: Map<string
   })
 
   if (motion.rootPosition?.length) {
-    const hips = humanoid.getRawBoneNode('hips' as never)
+    const hips = humanoid.getNormalizedBoneNode('hips' as never)
     if (hips) {
       const times = toTimes(motion.rootPosition)
       const values = new Float32Array(motion.rootPosition.length * 3)
@@ -235,7 +212,7 @@ function VrmModel({ url, mouthOpen, onLoaded, onVrmLoaded }: VrmModelProps) {
     const loaded = gltf.userData.vrm as VRM | undefined
     if (!loaded) return null
     if (loaded.humanoid) {
-      loaded.humanoid.autoUpdateHumanBones = false
+      loaded.humanoid.autoUpdateHumanBones = true
     }
     VRMUtils.removeUnnecessaryJoints(loaded.scene)
     VRMUtils.removeUnnecessaryVertices(loaded.scene)
@@ -312,7 +289,6 @@ type MotionPlayerProps = { vrm: VRM | null }
 function MotionPlayer({ vrm }: MotionPlayerProps) {
   const mixerRef = useRef<AnimationMixer | null>(null)
   const lastActionRef = useRef<AnimationAction | null>(null)
-  const restMapRef = useRef<Map<string, BoneRest> | null>(null)
   const motionPlayback = useAppStore((s) => s.motionPlayback)
   const motionPlaybackKey = useAppStore((s) => s.motionPlaybackKey)
   const appendLog = useAppStore((s) => s.appendLog)
@@ -320,12 +296,10 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
   useEffect(() => {
     if (!vrm) return undefined
     mixerRef.current = new AnimationMixer(vrm.scene)
-    restMapRef.current = computeRestMap(vrm)
     return () => {
       mixerRef.current?.stopAllAction()
       mixerRef.current = null
       lastActionRef.current = null
-      restMapRef.current = null
     }
   }, [vrm])
 
@@ -335,7 +309,7 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
 
   useEffect(() => {
     if (!vrm || !motionPlayback || !mixerRef.current) return
-    const clip = buildMotionClip(vrm, motionPlayback, restMapRef.current ?? new Map())
+    const clip = buildMotionClip(vrm, motionPlayback, new Map())
     if (!clip || clip.tracks.length === 0) {
       return
     }
