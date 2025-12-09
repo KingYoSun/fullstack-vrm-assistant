@@ -28,7 +28,7 @@ import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loade
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { useAppStore } from '../../store/appStore'
 import type { MotionDiagResult } from '../../types/app'
-import { loadVrmaClip, retargetVrmaClip } from '../../utils/vrmaLoader'
+import { loadVrmaClip, motionJsonToClip, retargetVrmaClip } from '../../utils/vrmaLoader'
 
 type VrmModelProps = {
   url: string
