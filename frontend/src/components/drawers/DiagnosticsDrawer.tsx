@@ -1,0 +1,355 @@
+import type {
+  DbDiagResult,
+  EmbeddingDiagResult,
+  LlmDiagResult,
+  RagDiagResult,
+  SttDiagResult,
+  TtsDiagMeta,
+} from '../../types/app'
+
+type DiagnosticsDrawerProps = {
+  open: boolean
+  apiBaseUrl: string
+  apiBase: string
+  defaultApiBaseUrl: string
+  sttResult: SttDiagResult | null
+  sttError: string | null
+  sttLoading: boolean
+  llmPrompt: string
+  llmContext: string
+  llmResult: LlmDiagResult | null
+  llmError: string | null
+  llmLoading: boolean
+  ttsText: string
+  ttsVoice: string
+  ttsMeta: TtsDiagMeta | null
+  ttsAudioUrl: string | null
+  ttsError: string | null
+  ttsLoading: boolean
+  embeddingText: string
+  embeddingResult: EmbeddingDiagResult | null
+  embeddingError: string | null
+  embeddingLoading: boolean
+  ragQuery: string
+  ragTopK: string
+  ragResult: RagDiagResult | null
+  ragError: string | null
+  ragLoading: boolean
+  dbStatus: DbDiagResult | null
+  dbError: string | null
+  dbLoading: boolean
+  onClose: () => void
+  onChangeApiBaseUrl: (value: string) => void
+  onChangeSttFile: (file: File | null) => void
+  onRunSttCheck: () => void
+  onChangeLlmPrompt: (value: string) => void
+  onChangeLlmContext: (value: string) => void
+  onRunLlmCheck: () => void
+  onChangeTtsText: (value: string) => void
+  onChangeTtsVoice: (value: string) => void
+  onRunTtsCheck: () => void
+  onChangeEmbeddingText: (value: string) => void
+  onRunEmbeddingCheck: () => void
+  onChangeRagQuery: (value: string) => void
+  onChangeRagTopK: (value: string) => void
+  onRunRagCheck: () => void
+  onPingDatabase: () => void
+}
+
+export function DiagnosticsDrawer({
+  open,
+  apiBaseUrl,
+  apiBase,
+  defaultApiBaseUrl,
+  sttResult,
+  sttError,
+  sttLoading,
+  llmPrompt,
+  llmContext,
+  llmResult,
+  llmError,
+  llmLoading,
+  ttsText,
+  ttsVoice,
+  ttsMeta,
+  ttsAudioUrl,
+  ttsError,
+  ttsLoading,
+  embeddingText,
+  embeddingResult,
+  embeddingError,
+  embeddingLoading,
+  ragQuery,
+  ragTopK,
+  ragResult,
+  ragError,
+  ragLoading,
+  dbStatus,
+  dbError,
+  dbLoading,
+  onClose,
+  onChangeApiBaseUrl,
+  onChangeSttFile,
+  onRunSttCheck,
+  onChangeLlmPrompt,
+  onChangeLlmContext,
+  onRunLlmCheck,
+  onChangeTtsText,
+  onChangeTtsVoice,
+  onRunTtsCheck,
+  onChangeEmbeddingText,
+  onRunEmbeddingCheck,
+  onChangeRagQuery,
+  onChangeRagTopK,
+  onRunRagCheck,
+  onPingDatabase,
+}: DiagnosticsDrawerProps) {
+  if (!open) return null
+
+  return (
+    <div className="drawer-card diagnostics-drawer diagnostics">
+      <div className="drawer-head diag-headline">
+        <div>
+          <div className="eyebrow">要素別検証</div>
+          <h3>Diagnostics Playground</h3>
+          <p className="sub small">
+            STT / LLM / TTS / Embedding / RAG / DB を個別に叩き、ボトルネックを切り分けます。
+          </p>
+        </div>
+        <div className="field api-field">
+          <label>API Base URL</label>
+          <input value={apiBaseUrl} onChange={(e) => onChangeApiBaseUrl(e.target.value)} placeholder={defaultApiBaseUrl} />
+          <p className="hint mono small">{`${apiBase}/diagnostics/...`}</p>
+        </div>
+        <button className="ghost" onClick={onClose}>
+          収納
+        </button>
+      </div>
+
+      <div className="diag-grid">
+        <div className="diag-card">
+          <div className="diag-head">
+            <div>
+              <div className="eyebrow">Speech to Text</div>
+              <h4>STT</h4>
+            </div>
+            <div className="pill pill-soft">{sttResult ? `${(sttResult.byteLength / 1024).toFixed(1)} KB` : 'audio → text'}</div>
+          </div>
+          <div className="diag-body">
+            <label className="inline-label">音声ファイル</label>
+            <input type="file" accept="audio/*" onChange={(e) => onChangeSttFile(e.target.files?.[0] ?? null)} />
+            <div className="diag-actions">
+              <button onClick={onRunSttCheck} disabled={sttLoading}>
+                {sttLoading ? 'Running...' : 'STT 実行'}
+              </button>
+              {sttResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+            </div>
+            {sttError ? <p className="error-text">{sttError}</p> : null}
+            {sttResult ? (
+              <div className="diag-result">
+                <div className="diag-meta mono small">
+                  <span>{sttResult.provider}</span>
+                  <span>{sttResult.endpoint}</span>
+                </div>
+                <p className="mono small">{sttResult.text || '（空文字列）'}</p>
+              </div>
+            ) : (
+              <p className="hint">短い OGG/WebM を送り、音声のみでパイプラインを確認します。</p>
+            )}
+          </div>
+        </div>
+
+        <div className="diag-card">
+          <div className="diag-head">
+            <div>
+              <div className="eyebrow">Language</div>
+              <h4>LLM</h4>
+            </div>
+            <div className="pill pill-soft">{llmResult ? `${llmResult.latencyMs.toFixed(0)} ms` : 'prompt → tokens'}</div>
+          </div>
+          <div className="diag-body">
+            <label className="inline-label">プロンプト</label>
+            <textarea value={llmPrompt} onChange={(e) => onChangeLlmPrompt(e.target.value)} rows={3} />
+            <label className="inline-label">コンテキスト（任意）</label>
+            <textarea
+              value={llmContext}
+              onChange={(e) => onChangeLlmContext(e.target.value)}
+              rows={2}
+              placeholder="追加したい文脈があれば貼り付け"
+            />
+            <div className="diag-actions">
+              <button onClick={onRunLlmCheck} disabled={llmLoading}>
+                {llmLoading ? 'Running...' : 'LLM 実行'}
+              </button>
+              {llmResult ? <span className="pill pill-soft">tokens {llmResult.tokens.length}</span> : null}
+              {llmResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+            </div>
+            {llmError ? <p className="error-text">{llmError}</p> : null}
+            {llmResult ? (
+              <div className="diag-result">
+                <div className="diag-meta mono small">
+                  <span>{llmResult.provider}</span>
+                  <span>{llmResult.endpoint}</span>
+                </div>
+                <p className="mono small preview-text">{llmResult.assistantText || '(empty response)'}</p>
+              </div>
+            ) : (
+              <p className="hint">音声抜きで LLM 単体のレイテンシと応答をチェック。</p>
+            )}
+          </div>
+        </div>
+
+        <div className="diag-card">
+          <div className="diag-head">
+            <div>
+              <div className="eyebrow">Text to Speech</div>
+              <h4>TTS</h4>
+            </div>
+            <div className="pill pill-soft">{ttsMeta ? `${ttsMeta.byteLength} bytes` : 'text → audio'}</div>
+          </div>
+          <div className="diag-body">
+            <label className="inline-label">テキスト</label>
+            <textarea value={ttsText} onChange={(e) => onChangeTtsText(e.target.value)} rows={3} />
+            <label className="inline-label">Voice（任意）</label>
+            <input value={ttsVoice} onChange={(e) => onChangeTtsVoice(e.target.value)} placeholder="provider 側の音声 reference id" />
+            <div className="diag-actions">
+              <button onClick={onRunTtsCheck} disabled={ttsLoading}>
+                {ttsLoading ? 'Running...' : 'TTS 実行'}
+              </button>
+              {ttsMeta?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+              {ttsMeta ? <span className="pill pill-soft">{ttsMeta.latencyMs.toFixed(0)} ms</span> : null}
+            </div>
+            {ttsError ? <p className="error-text">{ttsError}</p> : null}
+            {ttsAudioUrl && ttsMeta ? (
+              <div className="diag-result">
+                <audio controls src={ttsAudioUrl} />
+                <div className="diag-meta mono small">
+                  <span>{ttsMeta.provider}</span>
+                  <span>{ttsMeta.mimeType}</span>
+                  <span>{ttsMeta.chunkCount} chunks</span>
+                </div>
+              </div>
+            ) : (
+              <p className="hint">音声合成のみを実行し、再生とフォーマットを確認。</p>
+            )}
+          </div>
+        </div>
+
+        <div className="diag-card">
+          <div className="diag-head">
+            <div>
+              <div className="eyebrow">Embedding</div>
+              <h4>ベクトル生成</h4>
+            </div>
+            <div className="pill pill-soft">{embeddingResult ? `${embeddingResult.dimensions} dim` : 'text → vector'}</div>
+          </div>
+          <div className="diag-body">
+            <label className="inline-label">テキスト</label>
+            <textarea value={embeddingText} onChange={(e) => onChangeEmbeddingText(e.target.value)} rows={3} />
+            <div className="diag-actions">
+              <button onClick={onRunEmbeddingCheck} disabled={embeddingLoading}>
+                {embeddingLoading ? 'Running...' : 'Embedding 実行'}
+              </button>
+              {embeddingResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
+            </div>
+            {embeddingError ? <p className="error-text">{embeddingError}</p> : null}
+            {embeddingResult ? (
+              <div className="diag-result">
+                <div className="diag-meta mono small">
+                  <span>{embeddingResult.provider}</span>
+                  <span>{embeddingResult.endpoint}</span>
+                </div>
+                <p className="mono small vector-preview">
+                  {embeddingResult.vector.slice(0, 8).map((value, idx) => (
+                    <span key={idx} className="vector-chip">
+                      {value.toFixed(3)}
+                    </span>
+                  ))}
+                  {embeddingResult.vector.length > 8 ? ' ...' : ''}
+                </p>
+              </div>
+            ) : (
+              <p className="hint">RAG の前段となる埋め込み生成だけを計測。</p>
+            )}
+          </div>
+        </div>
+
+        <div className="diag-card">
+          <div className="diag-head">
+            <div>
+              <div className="eyebrow">RAG</div>
+              <h4>検索</h4>
+            </div>
+            <div className="pill pill-soft">{ragResult ? `${ragResult.documents.length} docs` : 'query → context'}</div>
+          </div>
+          <div className="diag-body">
+            <label className="inline-label">クエリ</label>
+            <input value={ragQuery} onChange={(e) => onChangeRagQuery(e.target.value)} />
+            <label className="inline-label">top_k</label>
+            <input type="number" min={1} max={50} value={ragTopK} onChange={(e) => onChangeRagTopK(e.target.value)} />
+            <div className="diag-actions">
+              <button onClick={onRunRagCheck} disabled={ragLoading}>
+                {ragLoading ? 'Running...' : 'RAG 検索'}
+              </button>
+              {ragResult ? (
+                <span className={`pill ${ragResult.ragIndexLoaded ? 'pill-soft' : 'pill-hot'}`}>
+                  index {ragResult.ragIndexLoaded ? 'loaded' : 'not loaded'}
+                </span>
+              ) : null}
+            </div>
+            {ragError ? <p className="error-text">{ragError}</p> : null}
+            {ragResult ? (
+              <div className="diag-result">
+                <div className="diag-meta mono small">
+                  <span>top_k: {ragResult.topK}</span>
+                  <span>docs: {ragResult.documents.length}</span>
+                </div>
+                <ul className="doc-list">
+                  {ragResult.documents.map((doc, idx) => (
+                    <li key={`${doc.source}-${idx}`}>
+                      <div className="pill pill-soft">
+                        #{idx + 1} {doc.source}
+                      </div>
+                      <p className="mono small">{doc.content}</p>
+                    </li>
+                  ))}
+                </ul>
+                <pre className="context-preview mono small">{ragResult.contextText || 'context empty'}</pre>
+              </div>
+            ) : (
+              <p className="hint">FAISS や文書ロードの結果だけを先にチェック。</p>
+            )}
+          </div>
+        </div>
+
+        <div className="diag-card">
+          <div className="diag-head">
+            <div>
+              <div className="eyebrow">Database</div>
+              <h4>DB 接続</h4>
+            </div>
+            <div className="pill pill-soft">{dbStatus?.status ?? 'ping only'}</div>
+          </div>
+          <div className="diag-body">
+            <p className="hint">DB だけを切り離してヘルス確認。ログ件数が取れれば書き込みも確認。</p>
+            <div className="diag-actions">
+              <button onClick={onPingDatabase} disabled={dbLoading}>
+                {dbLoading ? 'Pinging...' : 'DB Ping'}
+              </button>
+            </div>
+            {dbError ? <p className="error-text">{dbError}</p> : null}
+            {dbStatus ? (
+              <div className="diag-result">
+                <div className="diag-meta mono small">
+                  <span>status: {dbStatus.status}</span>
+                  {typeof dbStatus.conversationLogCount === 'number' ? <span>logs: {dbStatus.conversationLogCount}</span> : null}
+                </div>
+                {dbStatus.detail ? <p className="mono small">{dbStatus.detail}</p> : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

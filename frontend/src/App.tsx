@@ -1,51 +1,27 @@
-import {
-  Component,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MutableRefObject,
-  type ChangeEvent,
-  type ReactNode
-} from 'react'
-import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
-import { Html, OrbitControls } from '@react-three/drei'
-import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
-import { Box3, PerspectiveCamera, Vector3 } from 'three'
-import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import {
-  Activity,
-  ChevronDown,
-  ChevronUp,
-  FlaskConical,
-  History,
-  Upload,
-  Mic,
-  MicOff,
-  Plug,
-  PlugZap,
-  ScrollText,
-  Settings2,
-  UserRound,
-} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { AvatarCanvas, CanvasErrorBoundary } from './components/avatar/AvatarCanvas'
+import { ControlDock } from './components/session/ControlDock'
+import { RemotePanel } from './components/panels/RemotePanel'
+import { StreamPanel } from './components/panels/StreamPanel'
+import { ConnectionDrawer } from './components/drawers/ConnectionDrawer'
+import { PersonaDrawer } from './components/drawers/PersonaDrawer'
+import { DiagnosticsDrawer } from './components/drawers/DiagnosticsDrawer'
+import { LogsDrawer } from './components/drawers/LogsDrawer'
+import type {
+  ChatTurn,
+  CharacterProfile,
+  DbDiagResult,
+  EmbeddingDiagResult,
+  LatencyMap,
+  LlmDiagResult,
+  LogEntry,
+  RagDiagResult,
+  SttDiagResult,
+  SystemPrompt,
+  TtsDiagMeta,
+  WsState,
+} from './types/app'
 import './App.css'
-
-type WsState = 'disconnected' | 'connecting' | 'connected'
-
-type LogEntry = { time: string; text: string }
-
-type ChatTurn = {
-  id: string
-  userText: string
-  assistantText: string
-  status: 'listening' | 'responding' | 'done'
-  startedAt: number
-}
-
-type LatencyMap = { stt?: number; llm?: number; tts?: number }
 
 type WsPayload = {
   type?: string
@@ -59,70 +35,6 @@ type WsPayload = {
   mouth_open?: number
   recoverable?: boolean
   message?: string
-}
-
-type SttDiagResult = {
-  text: string
-  byteLength: number
-  provider: string
-  endpoint: string
-  fallbackUsed: boolean
-}
-
-type LlmDiagResult = {
-  assistantText: string
-  tokens: string[]
-  latencyMs: number
-  provider: string
-  endpoint: string
-  fallbackUsed: boolean
-}
-
-type TtsDiagMeta = {
-  mimeType: string
-  byteLength: number
-  chunkCount: number
-  latencyMs: number
-  provider: string
-  endpoint: string
-  sampleRate: number
-  fallbackUsed: boolean
-}
-
-type EmbeddingDiagResult = {
-  vector: number[]
-  dimensions: number
-  provider: string
-  endpoint: string
-  fallbackUsed: boolean
-}
-
-type RagDiagResult = {
-  query: string
-  documents: { source: string; content: string }[]
-  contextText: string
-  ragIndexLoaded: boolean
-  topK: number
-}
-
-type DbDiagResult = { status: string; detail?: string | null; conversationLogCount?: number | null }
-
-type CharacterProfile = {
-  id: number
-  name: string
-  persona: string
-  speakingStyle?: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-type SystemPrompt = {
-  id: number
-  title: string
-  content: string
-  isActive: boolean
-  createdAt: string
-  updatedAt: string
 }
 
 const DEFAULT_SYSTEM_PROMPT =
@@ -190,193 +102,6 @@ const resolveDefaultApiBaseUrl = () => {
 
 const DEFAULT_API_BASE_URL = resolveDefaultApiBaseUrl()
 const isMobileViewport = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-
-type CanvasErrorBoundaryProps = { resetKey?: string; onError?: (error: Error) => void; children: ReactNode }
-type CanvasErrorBoundaryState = { error: Error | null }
-
-class CanvasErrorBoundary extends Component<CanvasErrorBoundaryProps, CanvasErrorBoundaryState> {
-  state: CanvasErrorBoundaryState = { error: null }
-
-  static getDerivedStateFromError(error: Error): CanvasErrorBoundaryState {
-    return { error }
-  }
-
-  componentDidCatch(error: Error) {
-    this.props.onError?.(error)
-  }
-
-  componentDidUpdate(prevProps: CanvasErrorBoundaryProps) {
-    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
-      this.setState({ error: null })
-    }
-  }
-
-  handleReset = () => {
-    this.setState({ error: null })
-  }
-
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="canvas-error">
-          <div className="eyebrow">VRM 読み込みエラー</div>
-          <p className="mono small">{this.state.error.message}</p>
-          <button onClick={this.handleReset}>再試行</button>
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
-
-const avatarBox = new Box3()
-const avatarSize = new Vector3()
-const headPosition = new Vector3()
-const shoulderPosition = new Vector3()
-const focusPosition = new Vector3()
-const frontDirection = new Vector3()
-const directionBuffer = new Vector3()
-const cameraPositionBuffer = new Vector3()
-
-const adjustCameraToHeadshot = (vrm: VRM, camera: PerspectiveCamera, controls?: OrbitControlsImpl | null) => {
-  vrm.scene.updateWorldMatrix(true, true)
-  avatarBox.setFromObject(vrm.scene)
-  const size = avatarBox.getSize(avatarSize)
-
-  const headBone = vrm.humanoid?.getBoneNode('head')
-  const shoulderBone =
-    vrm.humanoid?.getBoneNode('neck') ??
-    vrm.humanoid?.getBoneNode('upperChest') ??
-    vrm.humanoid?.getBoneNode('chest')
-
-  const head = headBone?.getWorldPosition(headPosition) ?? avatarBox.getCenter(headPosition)
-  const shoulder = shoulderBone?.getWorldPosition(shoulderPosition) ?? null
-
-  const focus = focusPosition.copy(head)
-  if (shoulder) {
-    focus.lerp(shoulder, 0.35)
-  } else {
-    focus.y -= size.y * 0.18
-  }
-  focus.y += size.y * 0.05
-
-  const desiredViewHeight = Math.max(0.32, Math.min(size.y * 0.3, 0.6))
-  const fovRad = (camera.fov * Math.PI) / 180
-  const distance = Math.min(1.8, Math.max(0.6, desiredViewHeight / (2 * Math.tan(fovRad / 2))))
-
-  vrm.scene.getWorldDirection(frontDirection)
-  if (!Number.isFinite(frontDirection.x + frontDirection.y + frontDirection.z) || frontDirection.length() < 1e-6) {
-    frontDirection.set(0, 0, -1)
-  }
-  frontDirection.normalize()
-
-  const viewDirection = directionBuffer.copy(frontDirection).multiplyScalar(-1)
-  if (viewDirection.length() < 1e-3) {
-    viewDirection.set(0, 0, 1)
-  }
-
-  const newPosition = cameraPositionBuffer.copy(focus).add(viewDirection.multiplyScalar(distance))
-  camera.position.copy(newPosition)
-  camera.lookAt(focus)
-  camera.updateProjectionMatrix()
-
-  if (controls) {
-    controls.target.copy(focus)
-    controls.update()
-  }
-}
-
-type VrmModelProps = {
-  url: string
-  mouthOpen: number
-  onLoaded?: (name: string) => void
-  onVrmLoaded?: (vrm: VRM) => void
-}
-
-function VrmModel({ url, mouthOpen, onLoaded, onVrmLoaded }: VrmModelProps) {
-  const gltf = useLoader(GLTFLoader, url, (loader) => {
-    loader.register((parser: GLTFParser) => new VRMLoaderPlugin(parser))
-  }) as GLTF
-
-  const vrm = useMemo(() => {
-    const loaded = gltf.userData.vrm as VRM | undefined
-    if (!loaded) return null
-    VRMUtils.removeUnnecessaryJoints(loaded.scene)
-    VRMUtils.removeUnnecessaryVertices(loaded.scene)
-    loaded.scene.traverse((obj) => {
-      obj.frustumCulled = false
-    })
-    return loaded
-  }, [gltf])
-
-  useEffect(() => {
-    if (!vrm) return
-    if (onLoaded) {
-      const meta = vrm.meta
-      const name = meta.metaVersion === '0' ? meta.title ?? 'VRM avatar' : meta.name ?? 'VRM avatar'
-      onLoaded(name)
-    }
-    onVrmLoaded?.(vrm)
-  }, [onLoaded, onVrmLoaded, vrm])
-
-  useFrame((_, delta) => {
-    if (!vrm) return
-    const intensity = Math.min(1, Math.max(0, mouthOpen))
-    vrm.expressionManager?.setValue('aa', intensity)
-    vrm.expressionManager?.setValue('ih', intensity * 0.25)
-    vrm.expressionManager?.update()
-    vrm.update(delta)
-  })
-
-  return vrm ? <primitive object={vrm.scene} /> : null
-}
-
-type CameraFitterProps = {
-  vrm: VRM | null
-  recenterKey: number
-  controlsRef: MutableRefObject<OrbitControlsImpl | null>
-}
-
-function CameraFitter({ vrm, recenterKey, controlsRef }: CameraFitterProps) {
-  const { camera } = useThree()
-
-  useEffect(() => {
-    if (!vrm) return
-    adjustCameraToHeadshot(vrm, camera as PerspectiveCamera, controlsRef.current)
-  }, [vrm, recenterKey, camera, controlsRef])
-
-  return null
-}
-
-type AvatarCanvasProps = { url: string; mouthOpen: number; onLoaded?: (name: string) => void; recenterKey: number }
-
-function AvatarCanvas({ url, mouthOpen, onLoaded, recenterKey }: AvatarCanvasProps) {
-  const [vrm, setVrm] = useState<VRM | null>(null)
-  const controlsRef = useRef<OrbitControlsImpl | null>(null)
-
-  const handleVrmLoaded = useCallback((loaded: VRM) => {
-    setVrm(loaded)
-  }, [])
-
-  return (
-    <Canvas camera={{ position: [0, 1.4, 2.4], fov: 28 }} shadows style={{ height: '100%', width: '100%' }}>
-      <color attach="background" args={['#0b1021']} />
-      <ambientLight intensity={0.75} />
-      <directionalLight position={[2, 3, 2]} intensity={1.1} castShadow />
-      <Suspense
-        fallback={
-          <Html center>
-            <span className="loading">Loading VRM...</span>
-          </Html>
-        }
-      >
-        <VrmModel url={url} mouthOpen={mouthOpen} onLoaded={onLoaded} onVrmLoaded={handleVrmLoaded} />
-        <CameraFitter vrm={vrm} recenterKey={recenterKey} controlsRef={controlsRef} />
-        <OrbitControls ref={controlsRef} minDistance={0.9} maxDistance={3.5} />
-      </Suspense>
-    </Canvas>
-  )
-}
 
 function App() {
   const [baseUrl, setBaseUrl] = useState(DEFAULT_WS_BASE_URL)
@@ -658,6 +383,14 @@ function App() {
       content: DEFAULT_SYSTEM_PROMPT,
       isActive: true,
     })
+  }
+
+  const handleChangeCharacterForm = (key: 'name' | 'persona' | 'speakingStyle', value: string) => {
+    setCharacterForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleChangeSystemPromptForm = (key: 'title' | 'content' | 'isActive', value: string | boolean) => {
+    setSystemPromptForm((prev) => ({ ...prev, [key]: key === 'isActive' ? Boolean(value) : String(value) }))
   }
 
   const loadCharacters = async () => {
@@ -1632,747 +1365,163 @@ function App() {
         </CanvasErrorBoundary>
       </div>
 
-      <div className="control-dock glass-panel">
-        <div className="control-row">
-          <button
-            className={`icon-button ${state === 'connected' ? 'active' : ''}`}
-            onClick={state === 'connected' ? disconnect : connect}
-            disabled={state === 'connecting'}
-            aria-label={state === 'connected' ? 'Disconnect' : 'Connect'}
-          >
-            {state === 'connected' ? <Plug size={20} /> : <PlugZap size={20} />}
-            {!isMobile ? <span>{state === 'connected' ? 'Disconnect' : 'Connect'}</span> : null}
-          </button>
-          <button
-            className={`icon-button ${micActive ? 'hot' : ''}`}
-            onClick={micActive ? () => stopMic({ flush: true, reason: 'manual stop' }) : startMic}
-            disabled={state !== 'connected' || (!micActive && !micSupported)}
-            aria-label={micActive ? '録音停止' : '録音開始'}
-          >
-            {micActive ? <MicOff size={20} /> : <Mic size={20} />}
-            {!isMobile ? <span>{micActive ? '録音停止' : '録音開始'}</span> : null}
-          </button>
-          <button className="ghost control-aux" onClick={() => setCameraResetKey((key) => key + 1)} disabled={!avatarName}>
-            <Activity size={20} />
-            {!isMobile ? <span>視点リセット</span> : null}
-          </button>
-          <span className={`pill control-pill state-${state}`} aria-label={`state-${state}`}>
-            {state === 'connected' ? <Plug size={20} /> : state === 'connecting' ? <PlugZap size={20} /> : <Plug size={20} />}
-            {!isMobile ? <span className="pill-label">{state}</span> : null}
-          </span>
-          <span className={`pill control-pill ${micActive ? 'pill-hot' : ''}`} aria-label={`mic-${micActive ? 'on' : 'off'}`}>
-            {micActive ? <Mic size={20} /> : <MicOff size={20} />}
-            {!isMobile ? <span className="pill-label">mic {micActive ? 'on' : 'off'}</span> : null}
-          </span>
-        </div>
-      </div>
+      <ControlDock
+        state={state}
+        micActive={micActive}
+        micSupported={micSupported}
+        isMobile={isMobile}
+        canResetCamera={Boolean(avatarName)}
+        onConnect={connect}
+        onDisconnect={disconnect}
+        onStartMic={startMic}
+        onStopMic={() => stopMic({ flush: true, reason: 'manual stop' })}
+        onResetCamera={() => setCameraResetKey((key) => key + 1)}
+      />
 
-      <div className={`remote-fab glass-panel ${remoteCollapsed ? 'collapsed' : ''}`}>
-        {!isMobile ? (
-          <div className="fab-head">
-            <div>
-              <div className="eyebrow">設定 / ログ</div>
-            </div>
-          </div>
-        ) : null}
-        <div className="remote-chips compact">
-          <button className="remote-chip" onClick={openVrmFilePicker} aria-label="VRM を読み込む">
-            <Upload size={18} />
-          </button>
-          <input
-            ref={vrmFileInputRef}
-            type="file"
-            accept=".vrm,.glb,.gltf,model/gltf-binary,model/gltf+json"
-            onChange={handleVrmFileChange}
-            style={{ display: 'none' }}
-          />
-          <button
-            className={`remote-chip ${connectionDrawerOpen ? 'active' : ''}`}
-            onClick={() => setConnectionDrawerOpen((open) => !open)}
-            aria-label="接続 / ソース"
-          >
-            <Settings2 size={18} />
-          </button>
-          <button
-            className={`remote-chip ${personaDrawerOpen ? 'active' : ''}`}
-            onClick={() => setPersonaDrawerOpen((open) => !open)}
-            aria-label="キャラクター"
-          >
-            <UserRound size={18} />
-          </button>
-          <button
-            className={`remote-chip ${diagnosticsDrawerOpen ? 'active' : ''}`}
-            onClick={() => setDiagnosticsDrawerOpen((open) => !open)}
-            aria-label="Diagnostics"
-          >
-            <FlaskConical size={18} />
-          </button>
-          <button
-            className={`remote-chip ${logsDrawerOpen ? 'active' : ''}`}
-            onClick={() => setLogsDrawerOpen((open) => !open)}
-            aria-label="WS / オーディオ"
-          >
-            <ScrollText size={18} />
-          </button>
-          <button className="remote-chip collapse-toggle" onClick={() => setRemoteCollapsed((open) => !open)}>
-            {isMobile ? (remoteCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />) : remoteCollapsed ? '収納' : '展開'}
-          </button>
-        </div>
-        {!remoteCollapsed ? (
-          <div className="remote-meta compact">
-            <p className="mono tiny">{avatarName ?? 'VRM'}</p>
-            <div className="meter mini">
-              <div className="bar" style={{ width: `${mouthOpen * 100}%` }} />
-            </div>
-          </div>
-        ) : null}
-      </div>
+      <RemotePanel
+        isMobile={isMobile}
+        remoteCollapsed={remoteCollapsed}
+        connectionDrawerOpen={connectionDrawerOpen}
+        personaDrawerOpen={personaDrawerOpen}
+        diagnosticsDrawerOpen={diagnosticsDrawerOpen}
+        logsDrawerOpen={logsDrawerOpen}
+        mouthOpen={mouthOpen}
+        avatarName={avatarName}
+        vrmFileInputRef={vrmFileInputRef}
+        onToggleRemote={() => setRemoteCollapsed((open) => !open)}
+        onToggleConnection={() => setConnectionDrawerOpen((open) => !open)}
+        onTogglePersona={() => setPersonaDrawerOpen((open) => !open)}
+        onToggleDiagnostics={() => setDiagnosticsDrawerOpen((open) => !open)}
+        onToggleLogs={() => setLogsDrawerOpen((open) => !open)}
+        onOpenVrmFilePicker={openVrmFilePicker}
+        onVrmFileChange={handleVrmFileChange}
+      />
 
-      <div className={`stream-fab glass-panel ${streamCollapsed ? 'collapsed' : ''}`}>
-        <div className="stream-head">
-          {!isMobile ? (
-            <div>
-              <div className="eyebrow">STT / LLM</div>
-            </div>
-          ) : null}
-          <div className="stream-actions">
-            <button className="ghost compact" onClick={() => setHistoryOpen((open) => !open)} disabled={streamCollapsed}>
-              {isMobile ? <History size={18} /> : historyOpen ? 'history ▲' : 'history ▼'}
-            </button>
-            <button className="ghost compact" onClick={() => setShowLatencyPanel((open) => !open)} disabled={streamCollapsed}>
-              {isMobile ? <Activity size={18} /> : showLatencyPanel ? 'latency ▲' : 'latency ▼'}
-            </button>
-            <button className="ghost compact collapse-action" onClick={() => setStreamCollapsed((open) => !open)}>
-              {isMobile ? (streamCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />) : streamCollapsed ? '展開' : '収納'}
-            </button>
-          </div>
-        </div>
-        {!streamCollapsed ? (
-          <>
-            <div className="stream-mini">
-              <div className="stream-row">
-                <span className="label">partial</span>
-                <p className="mono tiny text-ellipsis">{partial || '—'}</p>
-              </div>
-              <div className="stream-row">
-                <span className="label">user</span>
-                <p className="mono tiny text-ellipsis">{latestTurn?.userText || '—'}</p>
-              </div>
-              <div className="stream-row">
-                <span className="label">assistant</span>
-                <p className="mono tiny text-ellipsis assistant">{latestTurn?.assistantText || '—'}</p>
-              </div>
-            </div>
-            {showLatencyPanel ? (
-              <div className="latency-card mini">
-                <div className="latency-grid">
-                  <div>
-                    <span>STT</span>
-                    <strong>{latency.stt ?? '—'}</strong>
-                  </div>
-                  <div>
-                    <span>LLM</span>
-                    <strong>{latency.llm ?? '—'}</strong>
-                  </div>
-                  <div>
-                    <span>TTS</span>
-                    <strong>{latency.tts ?? '—'}</strong>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            {historyOpen ? (
-              <div className="history-list mini">
-                {chatTurns
-                  .slice()
-                  .reverse()
-                  .map((turn) => (
-                    <div key={turn.id} className="history-card">
-                      <p className="mono tiny text-ellipsis">{turn.userText || '（user textなし）'}</p>
-                      <p className="mono tiny text-ellipsis assistant">{turn.assistantText || '応答なし'}</p>
-                    </div>
-                  ))}
-                {!chatTurns.length ? <p className="hint tiny">履歴なし</p> : null}
-              </div>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+      <StreamPanel
+        isMobile={isMobile}
+        streamCollapsed={streamCollapsed}
+        historyOpen={historyOpen}
+        showLatencyPanel={showLatencyPanel}
+        partial={partial}
+        chatTurns={chatTurns}
+        latency={latency}
+        onToggleHistory={() => setHistoryOpen((open) => !open)}
+        onToggleLatency={() => setShowLatencyPanel((open) => !open)}
+        onToggleStream={() => setStreamCollapsed((open) => !open)}
+      />
 
       <div className="ui-overlay">
         <div className="drawer-stack">
-            {connectionDrawerOpen ? (
-              <div className="drawer-card controls-drawer">
-                <div className="drawer-head">
-                  <div>
-                    <div className="eyebrow">接続とソース</div>
-                    <h3>WebSocket / VRM</h3>
-                    <p className="mono small ws-url">{wsUrl}</p>
-                  </div>
-                  <button className="ghost" onClick={() => setConnectionDrawerOpen(false)}>
-                    収納
-                  </button>
-                </div>
-                <div className="control-grid">
-                  <div className="field">
-                    <label>Base WS URL</label>
-                    <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={DEFAULT_WS_BASE_URL} />
-                  </div>
-                  <div className="field">
-                    <label>Session ID</label>
-                    <input value={sessionId} onChange={(e) => setSessionId(e.target.value)} />
-                  </div>
-                  <div className="field">
-                    <label>VRM URL</label>
-                    <input value={vrmUrl} onChange={(e) => updateVrmUrl(e.target.value)} placeholder="https://...vrm" />
-                  </div>
-                </div>
-                <div className="actions">
-                  <button onClick={connect} disabled={state === 'connected' || state === 'connecting'}>
-                    Connect
-                  </button>
-                  <button onClick={disconnect} disabled={state === 'disconnected'}>
-                    Disconnect
-                  </button>
-                  <button onClick={() => sendControl('ping')} disabled={state !== 'connected'}>
-                    Ping
-                  </button>
-                  <button onClick={() => sendControl('flush')} disabled={state !== 'connected'}>
-                    Flush
-                  </button>
-                  <button onClick={() => sendControl('resume')} disabled={state !== 'connected'}>
-                    Resume
-                  </button>
-                  <button onClick={startMic} disabled={state !== 'connected' || micActive || !micSupported}>
-                    録音開始
-                  </button>
-                  <button onClick={() => stopMic({ flush: true, reason: 'manual stop' })} disabled={!micActive}>
-                    録音終了（送信）
-                  </button>
-                </div>
-                <div className="live-stats">
-                  <div className="stat-block">
-                    <div className="eyebrow">Partial</div>
-                    <p className="mono">{partial || '—'}</p>
-                  </div>
-                  <div className="stat-block">
-                    <div className="eyebrow">User (latest)</div>
-                    <p className="mono">{lastUserText || '—'}</p>
-                  </div>
-                  <div className="stat-block">
-                    <div className="eyebrow">Assistant stream</div>
-                    <p className="mono small">{lastAssistantText || '—'}</p>
-                  </div>
-                  <div className="stat-block">
-                    <div className="eyebrow">TTS bytes</div>
-                    <p className="mono">{ttsBytes}</p>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {personaDrawerOpen ? (
-              <div className="drawer-card persona-drawer">
-                <div className="drawer-head persona-head">
-                  <div>
-                    <div className="eyebrow">キャラクター / プロンプト</div>
-                    <h3>Conversation Persona</h3>
-                    <p className="sub small">
-                      会話調で150字以内に収まるようにシステムプロンプトを固定しています。キャラクターを登録すると自動で反映されます。
-                    </p>
-                  </div>
-                  <div className="drawer-head-actions">
-                    <span className="pill pill-soft">150文字以内</span>
-                    <button className="ghost" onClick={() => setPersonaDrawerOpen(false)}>
-                      収納
-                    </button>
-                  </div>
-                </div>
-                <div className="persona-grid">
-                  <div className="persona-list">
-                    <div className={`persona-card ${activeCharacterId === null ? 'active' : ''}`}>
-                      <div className="card-head">
-                        <div>
-                          <div className="eyebrow">デフォルト</div>
-                          <h4>キャラクターなし</h4>
-                        </div>
-                        <button className="ghost" onClick={() => handleSelectCharacter(null)} disabled={activeCharacterId === null}>
-                          適用
-                        </button>
-                      </div>
-                      <p className="mono small persona-text">
-                        会話調で150字以内の短い返答。コンテキストがあれば要点だけ取り込みます。
-                      </p>
-                    </div>
-                    {characterLoading ? <p className="hint">キャラクターを読み込み中...</p> : null}
-                    {!characterLoading && characters.length === 0 ? (
-                      <p className="hint">登録済みのキャラクターがありません。右のフォームから追加できます。</p>
-                    ) : null}
-                    {characters.map((character) => (
-                      <div
-                        key={character.id}
-                        className={`persona-card ${activeCharacterId === character.id ? 'active' : ''}`}
-                      >
-                        <div className="card-head">
-                          <div>
-                            <div className="eyebrow">ID {character.id}</div>
-                            <h4>{character.name}</h4>
-                          </div>
-                          <div className="pill pill-soft">更新 {new Date(character.updatedAt).toLocaleDateString()}</div>
-                        </div>
-                        <p className="mono small persona-text">{character.persona}</p>
-                        {character.speakingStyle ? (
-                          <p className="mono small persona-text faint">話し方: {character.speakingStyle}</p>
-                        ) : null}
-                        <div className="card-actions">
-                          <button
-                            onClick={() => handleSelectCharacter(character.id)}
-                            disabled={activeCharacterId === character.id}
-                          >
-                            このキャラを使う
-                          </button>
-                          <button onClick={() => startEditCharacter(character)} className="ghost">
-                            編集
-                          </button>
-                          <button
-                            onClick={() => deleteCharacter(character.id)}
-                            className="ghost danger"
-                            disabled={characterDeletingId === character.id}
-                          >
-                            {characterDeletingId === character.id ? '削除中...' : '削除'}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="persona-form">
-                    <div className="eyebrow">作成 / 更新</div>
-                    <h4>{characterEditingId ? `編集: ${characterForm.name}` : '新規キャラクター'}</h4>
-                    <div className="field">
-                      <label>名前</label>
-                      <input
-                        value={characterForm.name}
-                        onChange={(e) => setCharacterForm((prev) => ({ ...prev, name: e.target.value }))}
-                        placeholder="例: 明るい秘書 / 落ち着いた案内役"
-                      />
-                    </div>
-                    <div className="field">
-                      <label>人物像・役割</label>
-                      <textarea
-                        value={characterForm.persona}
-                        onChange={(e) => setCharacterForm((prev) => ({ ...prev, persona: e.target.value }))}
-                        rows={3}
-                        placeholder="例: 元気でテンポが良い。問いの意図を汲み、余計な枕詞は避ける。"
-                      />
-                    </div>
-                    <div className="field">
-                      <label>話し方のヒント（任意）</label>
-                      <textarea
-                        value={characterForm.speakingStyle}
-                        onChange={(e) => setCharacterForm((prev) => ({ ...prev, speakingStyle: e.target.value }))}
-                        rows={2}
-                        placeholder="例: 言い切り口調。数字は具体的に、敬語は簡潔に。"
-                      />
-                    </div>
-                    {characterError ? <p className="error-text">{characterError}</p> : null}
-                    <div className="actions">
-                      <button onClick={saveCharacter} disabled={characterSaving}>
-                        {characterSaving ? '保存中...' : '保存して適用'}
-                      </button>
-                      <button onClick={resetCharacterForm} className="ghost">
-                        新規作成にリセット
-                      </button>
-                    </div>
-                    <p className="hint">
-                      デフォルトプロンプト: 会話調で150字以内の応答を徹底。ここで登録した人物像と話し方はシステムプロンプトに追加されます。
-                    </p>
-                  </div>
-                </div>
-                <div className="prompt-grid">
-                  <div>
-                    <div className="eyebrow">システムプロンプト一覧</div>
-                    {systemPromptLoading ? <p className="hint">読み込み中...</p> : null}
-                    {!systemPromptLoading && systemPrompts.length === 0 ? (
-                      <div className="persona-card">
-                        <div className="card-head">
-                          <div>
-                            <div className="eyebrow">デフォルト</div>
-                            <h4>保存済みプロンプトなし</h4>
-                          </div>
-                        </div>
-                        <p className="mono small persona-text">{DEFAULT_SYSTEM_PROMPT}</p>
-                      </div>
-                    ) : null}
-                    {systemPrompts.map((prompt) => (
-                      <div key={prompt.id} className={`persona-card ${prompt.isActive ? 'active' : ''}`}>
-                        <div className="card-head">
-                          <div>
-                            <div className="eyebrow">ID {prompt.id}</div>
-                            <h4>{prompt.title}</h4>
-                          </div>
-                          {prompt.isActive ? <span className="pill pill-soft">active</span> : null}
-                        </div>
-                        <p className="mono small persona-text">{prompt.content}</p>
-                        <div className="card-actions">
-                          <button onClick={() => startEditSystemPrompt(prompt)} className="ghost">
-                            編集
-                          </button>
-                          {!prompt.isActive ? (
-                            <button onClick={() => setActiveSystemPrompt(prompt.id)}>
-                              これを適用
-                            </button>
-                          ) : null}
-                          <button
-                            onClick={() => deleteSystemPrompt(prompt.id)}
-                            className="ghost danger"
-                            disabled={systemPromptDeletingId === prompt.id}
-                          >
-                            {systemPromptDeletingId === prompt.id ? '削除中...' : '削除'}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="persona-form">
-                    <div className="eyebrow">システムプロンプトの作成 / 更新</div>
-                    <h4>{systemPromptEditingId ? `編集: ${systemPromptForm.title}` : '新規プロンプト'}</h4>
-                    <div className="field">
-                      <label>タイトル</label>
-                      <input
-                        value={systemPromptForm.title}
-                        onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, title: e.target.value }))}
-                        placeholder="例: フレンドリー / 簡潔回答"
-                      />
-                    </div>
-                    <div className="field">
-                      <label>本文</label>
-                      <textarea
-                        value={systemPromptForm.content}
-                        onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, content: e.target.value }))}
-                        rows={4}
-                        placeholder={DEFAULT_SYSTEM_PROMPT}
-                      />
-                    </div>
-                    <div className="field inline-checkbox">
-                      <label className="inline">
-                        <input
-                          type="checkbox"
-                          checked={systemPromptForm.isActive}
-                          onChange={(e) => setSystemPromptForm((prev) => ({ ...prev, isActive: e.target.checked }))}
-                        />
-                        <span>これを適用状態にする</span>
-                      </label>
-                    </div>
-                    {systemPromptError ? <p className="error-text">{systemPromptError}</p> : null}
-                    <div className="actions">
-                      <button onClick={saveSystemPrompt} disabled={systemPromptSaving}>
-                        {systemPromptSaving ? '保存中...' : '保存'}
-                      </button>
-                      <button onClick={resetSystemPromptForm} className="ghost">
-                        新規作成にリセット
-                      </button>
-                    </div>
-                    <p className="hint">
-                      保存済みのプロンプトを active にすると、LLM のシステムプロンプトとして利用されます。未設定時はデフォルト文を使用。
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {diagnosticsDrawerOpen ? (
-              <div className="drawer-card diagnostics-drawer diagnostics">
-                <div className="drawer-head diag-headline">
-                  <div>
-                    <div className="eyebrow">要素別検証</div>
-                    <h3>Diagnostics Playground</h3>
-                    <p className="sub small">
-                      STT / LLM / TTS / Embedding / RAG / DB を個別に叩き、ボトルネックを切り分けます。
-                    </p>
-                  </div>
-                  <div className="field api-field">
-                    <label>API Base URL</label>
-                    <input
-                      value={apiBaseUrl}
-                      onChange={(e) => setApiBaseUrl(e.target.value)}
-                      placeholder={DEFAULT_API_BASE_URL}
-                    />
-                    <p className="hint mono small">{`${apiBase}/diagnostics/...`}</p>
-                  </div>
-                  <button className="ghost" onClick={() => setDiagnosticsDrawerOpen(false)}>
-                    収納
-                  </button>
-                </div>
-
-                <div className="diag-grid">
-                  <div className="diag-card">
-                    <div className="diag-head">
-                      <div>
-                        <div className="eyebrow">Speech to Text</div>
-                        <h4>STT</h4>
-                      </div>
-                      <div className="pill pill-soft">
-                        {sttResult ? `${(sttResult.byteLength / 1024).toFixed(1)} KB` : 'audio → text'}
-                      </div>
-                    </div>
-                    <div className="diag-body">
-                      <label className="inline-label">音声ファイル</label>
-                      <input type="file" accept="audio/*" onChange={(e) => setSttFile(e.target.files?.[0] ?? null)} />
-                      <div className="diag-actions">
-                        <button onClick={runSttCheck} disabled={sttLoading}>
-                          {sttLoading ? 'Running...' : 'STT 実行'}
-                        </button>
-                        {sttResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
-                      </div>
-                      {sttError ? <p className="error-text">{sttError}</p> : null}
-                      {sttResult ? (
-                        <div className="diag-result">
-                          <div className="diag-meta mono small">
-                            <span>{sttResult.provider}</span>
-                            <span>{sttResult.endpoint}</span>
-                          </div>
-                          <p className="mono small">{sttResult.text || '（空文字列）'}</p>
-                        </div>
-                      ) : (
-                        <p className="hint">短い OGG/WebM を送り、音声のみでパイプラインを確認します。</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="diag-card">
-                    <div className="diag-head">
-                      <div>
-                        <div className="eyebrow">Language</div>
-                        <h4>LLM</h4>
-                      </div>
-                      <div className="pill pill-soft">{llmResult ? `${llmResult.latencyMs.toFixed(0)} ms` : 'prompt → tokens'}</div>
-                    </div>
-                    <div className="diag-body">
-                      <label className="inline-label">プロンプト</label>
-                      <textarea value={llmPrompt} onChange={(e) => setLlmPrompt(e.target.value)} rows={3} />
-                      <label className="inline-label">コンテキスト（任意）</label>
-                      <textarea
-                        value={llmContext}
-                        onChange={(e) => setLlmContext(e.target.value)}
-                        rows={2}
-                        placeholder="追加したい文脈があれば貼り付け"
-                      />
-                      <div className="diag-actions">
-                        <button onClick={runLlmCheck} disabled={llmLoading}>
-                          {llmLoading ? 'Running...' : 'LLM 実行'}
-                        </button>
-                        {llmResult ? <span className="pill pill-soft">tokens {llmResult.tokens.length}</span> : null}
-                        {llmResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
-                      </div>
-                      {llmError ? <p className="error-text">{llmError}</p> : null}
-                      {llmResult ? (
-                        <div className="diag-result">
-                          <div className="diag-meta mono small">
-                            <span>{llmResult.provider}</span>
-                            <span>{llmResult.endpoint}</span>
-                          </div>
-                          <p className="mono small preview-text">{llmResult.assistantText || '(empty response)'}</p>
-                        </div>
-                      ) : (
-                        <p className="hint">音声抜きで LLM 単体のレイテンシと応答をチェック。</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="diag-card">
-                    <div className="diag-head">
-                      <div>
-                        <div className="eyebrow">Text to Speech</div>
-                        <h4>TTS</h4>
-                      </div>
-                      <div className="pill pill-soft">{ttsMeta ? `${ttsMeta.byteLength} bytes` : 'text → audio'}</div>
-                    </div>
-                    <div className="diag-body">
-                      <label className="inline-label">テキスト</label>
-                      <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} rows={3} />
-                      <label className="inline-label">Voice（任意）</label>
-                      <input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} placeholder="provider 側の音声 reference id" />
-                      <div className="diag-actions">
-                        <button onClick={runTtsCheck} disabled={ttsLoading}>
-                          {ttsLoading ? 'Running...' : 'TTS 実行'}
-                        </button>
-                        {ttsMeta?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
-                        {ttsMeta ? <span className="pill pill-soft">{ttsMeta.latencyMs.toFixed(0)} ms</span> : null}
-                      </div>
-                      {ttsError ? <p className="error-text">{ttsError}</p> : null}
-                      {ttsAudioUrl && ttsMeta ? (
-                        <div className="diag-result">
-                          <audio controls src={ttsAudioUrl} />
-                          <div className="diag-meta mono small">
-                            <span>{ttsMeta.provider}</span>
-                            <span>{ttsMeta.mimeType}</span>
-                            <span>{ttsMeta.chunkCount} chunks</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="hint">音声合成のみを実行し、再生とフォーマットを確認。</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="diag-card">
-                    <div className="diag-head">
-                      <div>
-                        <div className="eyebrow">Embedding</div>
-                        <h4>ベクトル生成</h4>
-                      </div>
-                      <div className="pill pill-soft">
-                        {embeddingResult ? `${embeddingResult.dimensions} dim` : 'text → vector'}
-                      </div>
-                    </div>
-                    <div className="diag-body">
-                      <label className="inline-label">テキスト</label>
-                      <textarea value={embeddingText} onChange={(e) => setEmbeddingText(e.target.value)} rows={3} />
-                      <div className="diag-actions">
-                        <button onClick={runEmbeddingCheck} disabled={embeddingLoading}>
-                          {embeddingLoading ? 'Running...' : 'Embedding 実行'}
-                        </button>
-                        {embeddingResult?.fallbackUsed ? <span className="pill pill-hot">fallback</span> : null}
-                      </div>
-                      {embeddingError ? <p className="error-text">{embeddingError}</p> : null}
-                      {embeddingResult ? (
-                        <div className="diag-result">
-                          <div className="diag-meta mono small">
-                            <span>{embeddingResult.provider}</span>
-                            <span>{embeddingResult.endpoint}</span>
-                          </div>
-                          <p className="mono small vector-preview">
-                            {embeddingResult.vector.slice(0, 8).map((value, idx) => (
-                              <span key={idx} className="vector-chip">
-                                {value.toFixed(3)}
-                              </span>
-                            ))}
-                            {embeddingResult.vector.length > 8 ? ' ...' : ''}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="hint">RAG の前段となる埋め込み生成だけを計測。</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="diag-card">
-                    <div className="diag-head">
-                      <div>
-                        <div className="eyebrow">RAG</div>
-                        <h4>検索</h4>
-                      </div>
-                      <div className="pill pill-soft">
-                        {ragResult ? `${ragResult.documents.length} docs` : 'query → context'}
-                      </div>
-                    </div>
-                    <div className="diag-body">
-                      <label className="inline-label">クエリ</label>
-                      <input value={ragQuery} onChange={(e) => setRagQuery(e.target.value)} />
-                      <label className="inline-label">top_k</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={50}
-                        value={ragTopK}
-                        onChange={(e) => setRagTopK(e.target.value)}
-                      />
-                      <div className="diag-actions">
-                        <button onClick={runRagCheck} disabled={ragLoading}>
-                          {ragLoading ? 'Running...' : 'RAG 検索'}
-                        </button>
-                        {ragResult ? (
-                          <span className={`pill ${ragResult.ragIndexLoaded ? 'pill-soft' : 'pill-hot'}`}>
-                            index {ragResult.ragIndexLoaded ? 'loaded' : 'not loaded'}
-                          </span>
-                        ) : null}
-                      </div>
-                      {ragError ? <p className="error-text">{ragError}</p> : null}
-                      {ragResult ? (
-                        <div className="diag-result">
-                          <div className="diag-meta mono small">
-                            <span>top_k: {ragResult.topK}</span>
-                            <span>docs: {ragResult.documents.length}</span>
-                          </div>
-                          <ul className="doc-list">
-                            {ragResult.documents.map((doc, idx) => (
-                              <li key={`${doc.source}-${idx}`}>
-                                <div className="pill pill-soft">#{idx + 1} {doc.source}</div>
-                                <p className="mono small">{doc.content}</p>
-                              </li>
-                            ))}
-                          </ul>
-                          <pre className="context-preview mono small">{ragResult.contextText || 'context empty'}</pre>
-                        </div>
-                      ) : (
-                        <p className="hint">FAISS や文書ロードの結果だけを先にチェック。</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="diag-card">
-                    <div className="diag-head">
-                      <div>
-                        <div className="eyebrow">Database</div>
-                        <h4>DB 接続</h4>
-                      </div>
-                      <div className="pill pill-soft">{dbStatus?.status ?? 'ping only'}</div>
-                    </div>
-                    <div className="diag-body">
-                      <p className="hint">DB だけを切り離してヘルス確認。ログ件数が取れれば書き込みも確認。</p>
-                      <div className="diag-actions">
-                        <button onClick={pingDatabase} disabled={dbLoading}>
-                          {dbLoading ? 'Pinging...' : 'DB Ping'}
-                        </button>
-                      </div>
-                      {dbError ? <p className="error-text">{dbError}</p> : null}
-                      {dbStatus ? (
-                        <div className="diag-result">
-                          <div className="diag-meta mono small">
-                            <span>status: {dbStatus.status}</span>
-                            {typeof dbStatus.conversationLogCount === 'number' ? (
-                              <span>logs: {dbStatus.conversationLogCount}</span>
-                            ) : null}
-                          </div>
-                          {dbStatus.detail ? <p className="mono small">{dbStatus.detail}</p> : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {logsDrawerOpen ? (
-              <div className="drawer-card log-drawer log">
-                <div className="drawer-head">
-                  <div>
-                    <div className="eyebrow">Events</div>
-                    <h3>WS / オーディオログ</h3>
-                  </div>
-                  <div className="drawer-head-actions">
-                    <div className="pill pill-soft">max 80 entries</div>
-                    <button className="ghost" onClick={() => setLogsDrawerOpen(false)}>
-                      収納
-                    </button>
-                  </div>
-                </div>
-                <ul>
-                  {logs
-                    .slice()
-                    .reverse()
-                    .map((entry, idx) => (
-                      <li key={idx}>
-                        <span className="time">{entry.time}</span>
-                        <span className="text">{entry.text}</span>
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
+          <ConnectionDrawer
+            open={connectionDrawerOpen}
+            wsUrl={wsUrl}
+            baseUrl={baseUrl}
+            sessionId={sessionId}
+            vrmUrl={vrmUrl}
+            state={state}
+            partial={partial}
+            lastUserText={lastUserText}
+            lastAssistantText={lastAssistantText}
+            ttsBytes={ttsBytes}
+            micActive={micActive}
+            micSupported={micSupported}
+            defaultWsBaseUrl={DEFAULT_WS_BASE_URL}
+            onClose={() => setConnectionDrawerOpen(false)}
+            onConnect={connect}
+            onDisconnect={disconnect}
+            onPing={() => sendControl('ping')}
+            onFlush={() => sendControl('flush')}
+            onResume={() => sendControl('resume')}
+            onStartMic={startMic}
+            onStopMic={() => stopMic({ flush: true, reason: 'manual stop' })}
+            onChangeBaseUrl={setBaseUrl}
+            onChangeSessionId={setSessionId}
+            onChangeVrmUrl={updateVrmUrl}
+          />
+          <PersonaDrawer
+            open={personaDrawerOpen}
+            characters={characters}
+            characterForm={characterForm}
+            characterEditingId={characterEditingId}
+            characterError={characterError}
+            characterLoading={characterLoading}
+            characterSaving={characterSaving}
+            characterDeletingId={characterDeletingId}
+            activeCharacterId={activeCharacterId}
+            systemPrompts={systemPrompts}
+            systemPromptForm={systemPromptForm}
+            systemPromptEditingId={systemPromptEditingId}
+            systemPromptError={systemPromptError}
+            systemPromptLoading={systemPromptLoading}
+            systemPromptSaving={systemPromptSaving}
+            systemPromptDeletingId={systemPromptDeletingId}
+            defaultSystemPrompt={DEFAULT_SYSTEM_PROMPT}
+            onClose={() => setPersonaDrawerOpen(false)}
+            onSelectCharacter={handleSelectCharacter}
+            onStartEditCharacter={startEditCharacter}
+            onDeleteCharacter={deleteCharacter}
+            onChangeCharacterForm={handleChangeCharacterForm}
+            onSaveCharacter={saveCharacter}
+            onResetCharacterForm={resetCharacterForm}
+            onStartEditSystemPrompt={startEditSystemPrompt}
+            onDeleteSystemPrompt={deleteSystemPrompt}
+            onSetActiveSystemPrompt={setActiveSystemPrompt}
+            onChangeSystemPromptForm={handleChangeSystemPromptForm}
+            onSaveSystemPrompt={saveSystemPrompt}
+            onResetSystemPromptForm={resetSystemPromptForm}
+          />
+          <DiagnosticsDrawer
+            open={diagnosticsDrawerOpen}
+            apiBaseUrl={apiBaseUrl}
+            apiBase={apiBase}
+            defaultApiBaseUrl={DEFAULT_API_BASE_URL}
+            sttResult={sttResult}
+            sttError={sttError}
+            sttLoading={sttLoading}
+            llmPrompt={llmPrompt}
+            llmContext={llmContext}
+            llmResult={llmResult}
+            llmError={llmError}
+            llmLoading={llmLoading}
+            ttsText={ttsText}
+            ttsVoice={ttsVoice}
+            ttsMeta={ttsMeta}
+            ttsAudioUrl={ttsAudioUrl}
+            ttsError={ttsError}
+            ttsLoading={ttsLoading}
+            embeddingText={embeddingText}
+            embeddingResult={embeddingResult}
+            embeddingError={embeddingError}
+            embeddingLoading={embeddingLoading}
+            ragQuery={ragQuery}
+            ragTopK={ragTopK}
+            ragResult={ragResult}
+            ragError={ragError}
+            ragLoading={ragLoading}
+            dbStatus={dbStatus}
+            dbError={dbError}
+            dbLoading={dbLoading}
+            onClose={() => setDiagnosticsDrawerOpen(false)}
+            onChangeApiBaseUrl={setApiBaseUrl}
+            onChangeSttFile={setSttFile}
+            onRunSttCheck={runSttCheck}
+            onChangeLlmPrompt={setLlmPrompt}
+            onChangeLlmContext={setLlmContext}
+            onRunLlmCheck={runLlmCheck}
+            onChangeTtsText={setTtsText}
+            onChangeTtsVoice={setTtsVoice}
+            onRunTtsCheck={runTtsCheck}
+            onChangeEmbeddingText={setEmbeddingText}
+            onRunEmbeddingCheck={runEmbeddingCheck}
+            onChangeRagQuery={setRagQuery}
+            onChangeRagTopK={setRagTopK}
+            onRunRagCheck={runRagCheck}
+            onPingDatabase={pingDatabase}
+          />
+          <LogsDrawer open={logsDrawerOpen} logs={logs} onClose={() => setLogsDrawerOpen(false)} />
         </div>
       </div>
+    </div>
   )
 }
 
