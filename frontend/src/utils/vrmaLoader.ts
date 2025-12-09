@@ -65,6 +65,7 @@ export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): AnimationClip =
   const humanoid = vrm.humanoid
   if (!humanoid) return clip
   const filtered: KeyframeTrack[] = []
+  const missing: string[] = []
   clip.tracks.forEach((track) => {
     const match = track.name.match(/^(.+)\.(position|quaternion|scale)$/)
     if (!match) return
@@ -72,10 +73,17 @@ export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): AnimationClip =
     const prop = match[2]
     const humanBone = resolveHumanBone(base) ?? base
     const node = humanoid.getNormalizedBoneNode(humanBone as never)
-    if (!node) return
+    if (!node) {
+      missing.push(`${humanBone}.${prop}`)
+      return
+    }
     track.name = `${node.name}.${prop}`
     filtered.push(track)
   })
+  if (missing.length) {
+    // eslint-disable-next-line no-console
+    console.warn(`VRMA retarget: missing ${missing.length} track(s)`, missing.slice(0, 8))
+  }
   return new THREE.AnimationClip(clip.name || 'vrma', clip.duration, filtered)
 }
 

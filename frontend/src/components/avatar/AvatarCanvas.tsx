@@ -326,7 +326,7 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
     })
     const retargeted = retargetVrmaClip(clip, vrm)
     if (!retargeted || retargeted.tracks.length === 0) {
-      appendLog('motion: no applicable tracks for VRM')
+      appendLog('motion: no applicable tracks for VRM (retargeted 0)')
       return
     }
     const mixer = mixerRef.current
@@ -339,7 +339,12 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
     action.clampWhenFinished = true
     action.play()
     lastActionRef.current = action
-    appendLog(`motion: play job=${motionPlayback.jobId || 'n/a'} (${retargeted.tracks.length} tracks)`)
+    const trackNames = retargeted.tracks.map((t) => t.name)
+    appendLog(
+      `motion: play job=${motionPlayback.jobId || 'n/a'} (${retargeted.tracks.length} tracks) targets=${trackNames
+        .slice(0, 6)
+        .join(',')}${trackNames.length > 6 ? '…' : ''}`,
+    )
   }, [motionPlaybackKey, motionPlayback, vrm, appendLog])
 
   useEffect(() => {
