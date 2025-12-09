@@ -80,6 +80,9 @@ const computeRestMap = (vrm: VRM): Map<string, BoneRest> => {
     const name = humanBone?.humanBoneName
     const node = humanBone?.node
     if (!name || !node) return
+    if (node.name !== name) {
+      node.name = name
+    }
     const restLocal = node.quaternion.clone()
     const restWorld = new Quaternion()
     node.getWorldQuaternion(restWorld)
@@ -101,7 +104,7 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, restMap: Map<string
     if (!Array.isArray(frames) || frames.length === 0) return
     const node = humanoid.getBoneNode(bone as never)
     if (!node) return
-    const target = `${node.name || bone}.quaternion`
+    const target = `${bone}.quaternion`
     const times = toTimes(frames)
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
