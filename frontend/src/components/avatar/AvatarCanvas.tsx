@@ -69,7 +69,7 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult): AnimationClip | nu
     if (!Array.isArray(frames) || frames.length === 0) return
     const node = humanoid.getBoneNode(bone as never)
     if (!node) return
-    const target = `${node.uuid}.quaternion`
+    const target = `${node.name || bone}.quaternion`
     const times = toTimes(frames)
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
@@ -94,7 +94,8 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult): AnimationClip | nu
         values[offset + 1] = frame.y ?? 0
         values[offset + 2] = frame.z ?? 0
       })
-      tracks.push(new VectorKeyframeTrack(`${hips.uuid}.position`, times, values))
+      const target = `${hips.name || 'hips'}.position`
+      tracks.push(new VectorKeyframeTrack(target, times, values))
     }
   }
 
