@@ -24,6 +24,7 @@
 - フロントの再生経路は normalized ボーンでのリターゲット＆AnimationMixer 再生が動作。VRMA ファイルを「VRMA → Motion」で JSON に変換し、Motion 経路経由でも正しく再生できることを確認。
 - motion_service のプレースホルダー JSON（左右腕・胴体など 7 トラック）は、最大でも ~10 度程度の回転で見た目がほぼ T ポーズのまま。生成側で振幅を大きくしても改善せず、出力内容が根本的に不足している可能性が高い。
 - 現状、Motion 経路の実装・リターゲットは正常と判断。改善は motion_service（SnapMoGen 出力）でのスケール/生成ロジックの見直しが必要。
+- `metadata.generator` が `placeholder` のまま返ってきており、SnapMoGen 本体が動いていないか、推論出力の denorm/6D→quat 復号などが欠落している疑い。フロント側で placeholder を明示的に警告するようログを追加。バックエンド側でも placeholder 生成時に Warning を出すようにした。
 
 ## 前提・非スコープ
 - 環境: DGX Spark (CUDA 13.0, SM 12.1)、Docker Compose GPU プロファイル利用。Node 20系、Python 3.12 系。

@@ -267,6 +267,7 @@ const normalizeMotionPayload = (data: Record<string, unknown>): MotionDiagResult
   const url = typeof data.url === 'string' ? data.url : typeof data.output_path === 'string' ? data.output_path : ''
   const outputPath = typeof data.output_path === 'string' ? data.output_path : url
   const rootPosition = normalizeRootPositions(rootRaw)
+  const metadata = (data as { metadata?: unknown }).metadata
   return {
     jobId:
       typeof data.job_id === 'string'
@@ -284,6 +285,7 @@ const normalizeMotionPayload = (data: Record<string, unknown>): MotionDiagResult
     provider: typeof data.provider === 'string' ? data.provider : undefined,
     endpoint: typeof data.endpoint === 'string' ? data.endpoint : undefined,
     fallbackUsed: normalizeFallbackFlag((data as { fallback_used?: unknown; fallback?: unknown }).fallback_used ?? (data as { fallback?: unknown }).fallback),
+    metadata: metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>) : undefined,
   }
 }
 
@@ -1085,6 +1087,10 @@ export const useAppStore = create<AppStore>((set, get) => {
         motionPlayback: result,
         motionPlaybackKey: Date.now(),
       })
+      const generator = result.metadata && typeof result.metadata.generator === 'string' ? result.metadata.generator : undefined
+      if (generator === 'placeholder') {
+        appendLog('motion: placeholder generator (SnapMoGen 未実行の可能性)')
+      }
       // eslint-disable-next-line no-console
       console.info('diagnostics: motion normalized', {
         jobId: result.jobId,
@@ -1092,6 +1098,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         fps: result.fps,
         trackKeys: Object.keys(result.tracks || {}),
         rootFrames: result.rootPosition?.length ?? 0,
+        metadata: result.metadata,
       })
       appendLog(
         `diagnostics: motion ok (job=${result.jobId || 'n/a'}) tracks=${

@@ -26,6 +26,7 @@ export type MotionDiagResult = {
   provider?: string
   endpoint?: string
   fallbackUsed?: boolean
+  metadata?: Record<string, unknown>
 }
 
 export type SttDiagResult = {

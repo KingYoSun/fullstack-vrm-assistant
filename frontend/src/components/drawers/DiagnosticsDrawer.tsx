@@ -23,6 +23,7 @@ export function DiagnosticsDrawer() {
   const motionError = useAppStore((s) => s.motionError)
   const motionLoading = useAppStore((s) => s.motionLoading)
   const lastMotionEvent = useAppStore((s) => s.lastMotionEvent)
+  const motionMetaGenerator = motionResult?.metadata && typeof motionResult.metadata.generator === 'string' ? motionResult.metadata.generator : null
   const vrmaUrl = useAppStore((s) => s.vrmaUrl)
   const embeddingText = useAppStore((s) => s.embeddingText)
   const embeddingResult = useAppStore((s) => s.embeddingResult)
@@ -224,6 +225,7 @@ export function DiagnosticsDrawer() {
                   <span>{motionResult.provider ?? 'motion'}</span>
                   <span>{motionResult.format}</span>
                   <span>{motionResult.durationSec.toFixed(1)}s</span>
+                  {motionMetaGenerator ? <span>gen: {motionMetaGenerator}</span> : null}
                 </div>
                 <p className="mono small preview-text">url: {motionResult.url || motionResult.outputPath}</p>
                 <p className="mono small">

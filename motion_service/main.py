@@ -71,6 +71,8 @@ async def generate_motion(body: MotionGenerateRequest) -> MotionArtifact:
         raise HTTPException(status_code=400, detail="prompt is empty")
     artifact = _build_artifact(body)
     logger.info("motion generated: job_id=%s prompt=%s", artifact.job_id, prompt)
+    if artifact.metadata.get("generator") == "placeholder":
+        logger.warning("motion_service is using placeholder generator; SnapMoGen backend not integrated")
     return artifact
 
 
