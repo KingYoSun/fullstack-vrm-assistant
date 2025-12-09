@@ -56,8 +56,33 @@ const frontDirection = new Vector3()
 const directionBuffer = new Vector3()
 const cameraPositionBuffer = new Vector3()
 const tmpQuat = new Quaternion()
+const tmpMatQuat = new Quaternion()
 
-const buildMotionClip = (vrm: VRM, motion: MotionDiagResult): AnimationClip | null => {
+type BoneRest = {
+  node: THREE.Object3D
+  restLocal: Quaternion
+  restWorld: Quaternion
+  restWorldInv: Quaternion
+}
+
+const computeRestMap = (vrm: VRM): Map<string, BoneRest> => {
+  const map = new Map<string, BoneRest>()
+  vrm.scene.updateMatrixWorld(true)
+  const humanoidBones = vrm.humanoid?.humanBones ?? []
+  humanoidBones.forEach((humanBone) => {
+    const name = humanBone.humanBoneName
+    const node = humanBone.node
+    if (!name || !node) return
+    const restLocal = node.quaternion.clone()
+    const restWorld = new Quaternion()
+    node.getWorldQuaternion(restWorld)
+    const restWorldInv = restWorld.clone().invert()
+    map.set(name, { node, restLocal, restWorld, restWorldInv })
+  })
+  return map
+}
+
+const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, restMap: Map<string, BoneRest>): AnimationClip | null => {
   const humanoid = vrm.humanoid
   if (!humanoid) return null
 
@@ -74,6 +99,11 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult): AnimationClip | nu
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
       tmpQuat.set(frame.x ?? 0, frame.y ?? 0, frame.z ?? 0, frame.w ?? 1).normalize()
+      const rest = restMap.get(bone)
+      if (rest) {
+        tmpMatQuat.copy(rest.restWorldInv).multiply(tmpQuat).multiply(rest.restWorld)
+        tmpQuat.copy(rest.restLocal).multiply(tmpMatQuat)
+      }
       const offset = idx * 4
       values[offset] = tmpQuat.x
       values[offset + 1] = tmpQuat.y
@@ -269,6 +299,7 @@ type MotionPlayerProps = { vrm: VRM | null }
 function MotionPlayer({ vrm }: MotionPlayerProps) {
   const mixerRef = useRef<AnimationMixer | null>(null)
   const lastActionRef = useRef<AnimationAction | null>(null)
+  const restMapRef = useRef<Map<string, BoneRest> | null>(null)
   const motionPlayback = useAppStore((s) => s.motionPlayback)
   const motionPlaybackKey = useAppStore((s) => s.motionPlaybackKey)
   const appendLog = useAppStore((s) => s.appendLog)
@@ -276,10 +307,12 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
   useEffect(() => {
     if (!vrm) return undefined
     mixerRef.current = new AnimationMixer(vrm.scene)
+    restMapRef.current = computeRestMap(vrm)
     return () => {
       mixerRef.current?.stopAllAction()
       mixerRef.current = null
       lastActionRef.current = null
+      restMapRef.current = null
     }
   }, [vrm])
 
@@ -289,7 +322,7 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
 
   useEffect(() => {
     if (!vrm || !motionPlayback || !mixerRef.current) return
-    const clip = buildMotionClip(vrm, motionPlayback)
+    const clip = buildMotionClip(vrm, motionPlayback, restMapRef.current ?? new Map())
     if (!clip || clip.tracks.length === 0) {
       return
     }
