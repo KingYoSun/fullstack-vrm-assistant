@@ -5,3 +5,4 @@
 - Backend 依存メモ: WebSocket 音声処理で `ffmpeg` バイナリ + `webrtcvad` + `websockets` を利用する（サーバイメージに追加が必要）。
 - Frontend メモ: Vite+React+TS を `frontend/` に初期化済み。パッケージマネージャは pnpm（`pnpm install` / `pnpm dev -- --host --port 5173`）。`src/App.tsx` では WebSocket コンソールに加え、react-three-fiber + three-vrm での VRM 表示と RMS ベースのリップシンク、shadcn 風チャットログ UI を実装。依存: `three` / `@react-three/fiber` / `@react-three/drei` / `@pixiv/three-vrm`（`pnpm build` で確認済み）。
 - プロンプト管理: SystemPrompt / CharacterProfile を DB で CRUD し、active プロンプトを自動適用。詳細は `docs/03_implementation/prompt_management.md`。
+- モーション生成統合計画: SnapMoGen を外部モーションプロバイダとして組み込む手順と分割タスクを `docs/03_implementation/motion_snapmogen_plan.md` に整理。

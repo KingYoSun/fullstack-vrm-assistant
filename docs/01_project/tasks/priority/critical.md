@@ -1,6 +1,7 @@
 # クリティカルタスク
 
 - 新規タスクを着手する場合はここに追記してから `status/in_progress.md` に移動してください。
+- 2025年12月09日: SnapMoGen をモーション生成マイクロサービスとして統合する計画策定
 - 2025年12月07日: Diagnostics TTS エンドポイントで CORS/OPTIONS (405) によりフロントから叩けない問題の修正（完了、`tasks/completed/2025-12-07.md` を参照）
 - 2025年12月03日: フロントエンド デフォルト VRM をローカルの `frontend/public/AliciaSolid.vrm` に切り替え（完了、`tasks/completed/2025-12-03.md` を参照）
 - 2025年12月03日: フロントエンド VRM ロード失敗（背景のみ表示）修正（完了、`tasks/completed/2025-12-03.md` を参照）
