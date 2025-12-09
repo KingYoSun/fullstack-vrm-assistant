@@ -95,9 +95,27 @@ export const motionJsonToClip = (motion: {
 }): AnimationClip => {
   const tracks: KeyframeTrack[] = []
   const toTimes = (frames: { t: number }[]) => Float32Array.from(frames.map((f) => f.t ?? 0))
+  const normalizeName = (name: string) => {
+    const lower = name.toLowerCase()
+    const map: Record<string, string> = {
+      leftarm: 'leftUpperArm',
+      rightarm: 'rightUpperArm',
+      leftforearm: 'leftLowerArm',
+      rightforearm: 'rightLowerArm',
+      leftupleg: 'leftUpperLeg',
+      rightupleg: 'rightUpperLeg',
+      leftleg: 'leftLowerLeg',
+      rightleg: 'rightLowerLeg',
+      spine1: 'chest',
+      spine2: 'upperChest',
+      spine3: 'upperChest',
+    }
+    return map[lower] ?? name
+  }
 
   Object.entries(motion.tracks || {}).forEach(([bone, frames]) => {
     if (!Array.isArray(frames) || frames.length === 0) return
+    const targetBone = normalizeName(bone)
     const times = toTimes(frames)
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
@@ -107,7 +125,7 @@ export const motionJsonToClip = (motion: {
       values[offset + 2] = frame.z ?? 0
       values[offset + 3] = frame.w ?? 1
     })
-    tracks.push(new THREE.QuaternionKeyframeTrack(`${bone}.quaternion`, times, values))
+    tracks.push(new THREE.QuaternionKeyframeTrack(`${targetBone}.quaternion`, times, values))
   })
 
   if (motion.rootPosition?.length) {
