@@ -23,6 +23,7 @@ export function DiagnosticsDrawer() {
   const motionError = useAppStore((s) => s.motionError)
   const motionLoading = useAppStore((s) => s.motionLoading)
   const lastMotionEvent = useAppStore((s) => s.lastMotionEvent)
+  const vrmaUrl = useAppStore((s) => s.vrmaUrl)
   const embeddingText = useAppStore((s) => s.embeddingText)
   const embeddingResult = useAppStore((s) => s.embeddingResult)
   const embeddingError = useAppStore((s) => s.embeddingError)
@@ -47,6 +48,8 @@ export function DiagnosticsDrawer() {
   const runTtsCheck = useAppStore((s) => s.runTtsCheck)
   const setMotionPrompt = useAppStore((s) => s.setMotionPrompt)
   const runMotionCheck = useAppStore((s) => s.runMotionCheck)
+  const setVrmaUrl = useAppStore((s) => s.setVrmaUrl)
+  const playVrma = useAppStore((s) => s.playVrma)
   const setEmbeddingText = useAppStore((s) => s.setEmbeddingText)
   const runEmbeddingCheck = useAppStore((s) => s.runEmbeddingCheck)
   const setRagQuery = useAppStore((s) => s.setRagQuery)
@@ -239,6 +242,30 @@ export function DiagnosticsDrawer() {
                 <p className="mono small preview-text">url: {lastMotionEvent.url || lastMotionEvent.outputPath}</p>
               </div>
             ) : null}
+            <div className="diag-subsection">
+              <label className="inline-label">VRMA URL またはファイル</label>
+              <input
+                value={vrmaUrl}
+                onChange={(e) => setVrmaUrl(e.target.value)}
+                placeholder="/data/animations/sample.vrma"
+              />
+              <input
+                type="file"
+                accept=".vrma,.gltf,.glb,model/gltf-binary,model/gltf+json"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    const url = URL.createObjectURL(file)
+                    setVrmaUrl(url)
+                  }
+                }}
+              />
+              <div className="diag-actions">
+                <button onClick={playVrma} disabled={!vrmaUrl}>
+                  VRMA 再生
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

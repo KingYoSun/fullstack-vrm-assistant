@@ -335,6 +335,8 @@ type AppState = {
   lastMotionEvent: MotionDiagResult | null
   motionPlayback: MotionDiagResult | null
   motionPlaybackKey: number
+  vrmaUrl: string
+  vrmaKey: number
   embeddingText: string
   embeddingResult: EmbeddingDiagResult | null
   embeddingError: string | null
@@ -388,6 +390,8 @@ type AppActions = {
   setTtsVoice: (value: string) => void
   setMotionPrompt: (value: string) => void
   triggerMotionPlayback: (motion: MotionDiagResult | null) => void
+  setVrmaUrl: (url: string) => void
+  playVrma: () => void
   setEmbeddingText: (value: string) => void
   setRagQuery: (value: string) => void
   setRagTopK: (value: string) => void
@@ -1537,6 +1541,13 @@ export const useAppStore = create<AppStore>((set, get) => {
   const setMotionPrompt = (value: string) => set({ motionPrompt: value })
   const triggerMotionPlayback = (motion: MotionDiagResult | null) =>
     set({ motionPlayback: motion, motionPlaybackKey: Date.now() })
+  const setVrmaUrl = (url: string) => set({ vrmaUrl: url })
+  const playVrma = () => {
+    const url = get().vrmaUrl.trim()
+    if (!url) return
+    set({ vrmaKey: Date.now(), lastMotionEvent: null })
+    appendLog(`vrma: play ${url}`)
+  }
   const setEmbeddingText = (value: string) => set({ embeddingText: value })
   const setRagQuery = (value: string) => set({ ragQuery: value })
   const setRagTopK = (value: string) => set({ ragTopK: value })
@@ -1619,6 +1630,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     lastMotionEvent: null,
     motionPlayback: null,
     motionPlaybackKey: 0,
+    vrmaUrl: '',
+    vrmaKey: 0,
     embeddingText: '3D アバターの対話体験を向上させるためのヒントを教えて',
     embeddingResult: null,
     embeddingError: null,

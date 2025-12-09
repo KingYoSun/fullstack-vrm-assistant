@@ -28,6 +28,7 @@ import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loade
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { useAppStore } from '../../store/appStore'
 import type { MotionDiagResult } from '../../types/app'
+import { loadVrmaClip } from '../../utils/vrmaLoader'
 
 type VrmModelProps = {
   url: string
@@ -297,6 +298,8 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
   const lastActionRef = useRef<AnimationAction | null>(null)
   const motionPlayback = useAppStore((s) => s.motionPlayback)
   const motionPlaybackKey = useAppStore((s) => s.motionPlaybackKey)
+  const vrmaUrl = useAppStore((s) => s.vrmaUrl)
+  const vrmaKey = useAppStore((s) => s.vrmaKey)
   const appendLog = useAppStore((s) => s.appendLog)
 
   useEffect(() => {
@@ -331,6 +334,33 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
     lastActionRef.current = action
     appendLog(`motion: play job=${motionPlayback.jobId || 'n/a'} (${clip.tracks.length} tracks)`)
   }, [motionPlaybackKey, motionPlayback, vrm, appendLog])
+
+  useEffect(() => {
+    let aborted = false
+    if (!vrm || !vrmaUrl || !mixerRef.current) return
+    loadVrmaClip(vrmaUrl, vrm)
+      .then((clip) => {
+        if (aborted || !clip || !mixerRef.current) return
+        if (lastActionRef.current) {
+          lastActionRef.current.stop()
+        }
+        const action = mixerRef.current.clipAction(clip)
+        action.reset()
+        action.setLoop(LoopOnce, 1)
+        action.clampWhenFinished = true
+        action.play()
+        lastActionRef.current = action
+        appendLog(`vrma: play ${vrmaUrl} (${clip.tracks.length} tracks)`)
+      })
+      .catch((err) => {
+        if (!aborted) {
+          appendLog(`vrma load error: ${(err as Error).message}`)
+        }
+      })
+    return () => {
+      aborted = true
+    }
+  }, [vrmaKey, vrmaUrl, vrm, appendLog])
 
   return null
 }
