@@ -71,8 +71,9 @@ export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): AnimationClip =
     if (!match) return
     const base = match[1]
     const prop = match[2]
-    const humanBone = resolveHumanBone(base) ?? base
-    const node = humanoid.getNormalizedBoneNode(humanBone as never)
+    const normalizedBase = base.replace(/^normalized_/i, '')
+    const humanBone = resolveHumanBone(normalizedBase) ?? normalizedBase
+    const node = humanoid.getRawBoneNode(humanBone as never)
     if (!node) {
       missing.push(`${humanBone}.${prop}`)
       return
@@ -109,6 +110,19 @@ export const motionJsonToClip = (motion: {
       spine1: 'chest',
       spine2: 'upperChest',
       spine3: 'upperChest',
+      normalized_hips: 'hips',
+      normalized_spine: 'spine',
+      normalized_spine1: 'chest',
+      normalized_spine2: 'upperChest',
+      normalized_spine3: 'upperChest',
+      normalized_leftarm: 'leftUpperArm',
+      normalized_rightarm: 'rightUpperArm',
+      normalized_leftforearm: 'leftLowerArm',
+      normalized_rightforearm: 'rightLowerArm',
+      normalized_leftleg: 'leftLowerLeg',
+      normalized_rightleg: 'rightLowerLeg',
+      normalized_leftupleg: 'leftUpperLeg',
+      normalized_rightupleg: 'rightUpperLeg',
     }
     return map[lower] ?? name
   }

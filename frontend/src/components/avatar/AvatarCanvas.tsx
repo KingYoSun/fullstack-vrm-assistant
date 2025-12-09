@@ -220,7 +220,7 @@ function VrmModel({ url, mouthOpen, onLoaded, onVrmLoaded }: VrmModelProps) {
     const loaded = gltf.userData.vrm as VRM | undefined
     if (!loaded) return null
     if (loaded.humanoid) {
-      loaded.humanoid.autoUpdateHumanBones = true
+      loaded.humanoid.autoUpdateHumanBones = false
     }
     VRMUtils.combineSkeletons(loaded.scene)
     loaded.scene.traverse((obj) => {
