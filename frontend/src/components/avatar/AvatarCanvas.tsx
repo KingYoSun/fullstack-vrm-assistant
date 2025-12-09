@@ -86,7 +86,11 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, _restMap: Map<strin
     if (!Array.isArray(frames) || frames.length === 0) return
     const node = humanoid.getNormalizedBoneNode(bone as never)
     if (!node) return
-    const target = `${node.name || bone}.quaternion`
+    const targetName = bone || node.name
+    if (targetName && node.name !== targetName) {
+      node.name = targetName
+    }
+    const target = `${node.name || targetName}.quaternion`
     const times = toTimes(frames)
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
@@ -103,6 +107,9 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, _restMap: Map<strin
   if (motion.rootPosition?.length) {
     const hips = humanoid.getNormalizedBoneNode('hips' as never)
     if (hips) {
+      if (hips.name !== 'hips') {
+        hips.name = 'hips'
+      }
       const times = toTimes(motion.rootPosition)
       const values = new Float32Array(motion.rootPosition.length * 3)
       motion.rootPosition.forEach((frame, idx) => {
@@ -125,11 +132,11 @@ const adjustCameraToHeadshot = (vrm: VRM, camera: PerspectiveCamera, controls?: 
   avatarBox.setFromObject(vrm.scene)
   const size = avatarBox.getSize(avatarSize)
 
-  const headBone = vrm.humanoid?.getBoneNode('head')
+  const headBone = vrm.humanoid?.getRawBoneNode('head' as never)
   const shoulderBone =
-    vrm.humanoid?.getBoneNode('neck') ??
-    vrm.humanoid?.getBoneNode('upperChest') ??
-    vrm.humanoid?.getBoneNode('chest')
+    vrm.humanoid?.getRawBoneNode('neck' as never) ??
+    vrm.humanoid?.getRawBoneNode('upperChest' as never) ??
+    vrm.humanoid?.getRawBoneNode('chest' as never)
 
   const head = headBone?.getWorldPosition(headPosition) ?? avatarBox.getCenter(headPosition)
   const shoulder = shoulderBone?.getWorldPosition(shoulderPosition) ?? null
@@ -214,8 +221,7 @@ function VrmModel({ url, mouthOpen, onLoaded, onVrmLoaded }: VrmModelProps) {
     if (loaded.humanoid) {
       loaded.humanoid.autoUpdateHumanBones = true
     }
-    VRMUtils.removeUnnecessaryJoints(loaded.scene)
-    VRMUtils.removeUnnecessaryVertices(loaded.scene)
+    VRMUtils.combineSkeletons(loaded.scene)
     loaded.scene.traverse((obj) => {
       obj.frustumCulled = false
     })
