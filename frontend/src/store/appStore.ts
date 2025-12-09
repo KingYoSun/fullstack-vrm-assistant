@@ -1720,6 +1720,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     setActiveSystemPrompt,
     loadSystemPrompts,
     clearTtsAudioUrl,
+    setVrmaUrl,
+    playVrma,
     cleanup,
   }
 })
