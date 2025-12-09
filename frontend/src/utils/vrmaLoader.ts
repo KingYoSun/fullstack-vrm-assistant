@@ -82,7 +82,7 @@ export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): AnimationClip =
   })
   if (missing.length) {
     // eslint-disable-next-line no-console
-    console.warn(`VRMA retarget: missing ${missing.length} track(s)`, missing.slice(0, 8))
+    console.warn(`VRMA/motion retarget: missing ${missing.length} track(s)`, missing.slice(0, 8))
   }
   return new THREE.AnimationClip(clip.name || 'vrma', clip.duration, filtered)
 }

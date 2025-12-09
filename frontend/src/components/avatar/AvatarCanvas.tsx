@@ -324,9 +324,12 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
       tracks: motionPlayback.tracks,
       rootPosition: motionPlayback.rootPosition,
     })
+    const originalNames = clip.tracks.map((t) => t.name)
     const retargeted = retargetVrmaClip(clip, vrm)
     if (!retargeted || retargeted.tracks.length === 0) {
       appendLog('motion: no applicable tracks for VRM (retargeted 0)')
+      // eslint-disable-next-line no-console
+      console.warn('motion retarget: no tracks bound', { originalNames })
       return
     }
     const mixer = mixerRef.current
