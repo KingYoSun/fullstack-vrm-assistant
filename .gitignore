@@ -7,6 +7,7 @@ __pycache__/
 # Generated FAISS index
 data/faiss/*.faiss
 data/faiss/*.pkl
+data/animations/*.*
 # Frontend build artifacts
 frontend/node_modules
 frontend/dist
