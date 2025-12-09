@@ -236,15 +236,40 @@ function CameraFitter({ vrm, recenterKey, controlsRef }: CameraFitterProps) {
 export function AvatarCanvas({ url, mouthOpen, onLoaded, recenterKey }: AvatarCanvasProps) {
   const [vrm, setVrm] = useState<VRM | null>(null)
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
+
+  const handleVrmLoaded = useCallback((loaded: VRM) => {
+    setVrm(loaded)
+  }, [])
+
+  return (
+    <Canvas camera={{ position: [0, 1.4, 2.4], fov: 28 }} shadows style={{ height: '100%', width: '100%' }}>
+      <color attach="background" args={['#0b1021']} />
+      <ambientLight intensity={0.75} />
+      <directionalLight position={[2, 3, 2]} intensity={1.1} castShadow />
+      <Suspense
+        fallback={
+          <Html center>
+            <span className="loading">Loading VRM...</span>
+          </Html>
+        }
+      >
+        <VrmModel url={url} mouthOpen={mouthOpen} onLoaded={onLoaded} onVrmLoaded={handleVrmLoaded} />
+        <CameraFitter vrm={vrm} recenterKey={recenterKey} controlsRef={controlsRef} />
+        <OrbitControls ref={controlsRef} minDistance={0.9} maxDistance={3.5} />
+        <MotionPlayer vrm={vrm} />
+      </Suspense>
+    </Canvas>
+  )
+}
+
+type MotionPlayerProps = { vrm: VRM | null }
+
+function MotionPlayer({ vrm }: MotionPlayerProps) {
   const mixerRef = useRef<AnimationMixer | null>(null)
   const lastActionRef = useRef<AnimationAction | null>(null)
   const motionPlayback = useAppStore((s) => s.motionPlayback)
   const motionPlaybackKey = useAppStore((s) => s.motionPlaybackKey)
   const appendLog = useAppStore((s) => s.appendLog)
-
-  const handleVrmLoaded = useCallback((loaded: VRM) => {
-    setVrm(loaded)
-  }, [])
 
   useEffect(() => {
     if (!vrm) return undefined
@@ -279,22 +304,5 @@ export function AvatarCanvas({ url, mouthOpen, onLoaded, recenterKey }: AvatarCa
     appendLog(`motion: play job=${motionPlayback.jobId || 'n/a'} (${clip.tracks.length} tracks)`)
   }, [motionPlaybackKey, motionPlayback, vrm, appendLog])
 
-  return (
-    <Canvas camera={{ position: [0, 1.4, 2.4], fov: 28 }} shadows style={{ height: '100%', width: '100%' }}>
-      <color attach="background" args={['#0b1021']} />
-      <ambientLight intensity={0.75} />
-      <directionalLight position={[2, 3, 2]} intensity={1.1} castShadow />
-      <Suspense
-        fallback={
-          <Html center>
-            <span className="loading">Loading VRM...</span>
-          </Html>
-        }
-      >
-        <VrmModel url={url} mouthOpen={mouthOpen} onLoaded={onLoaded} onVrmLoaded={handleVrmLoaded} />
-        <CameraFitter vrm={vrm} recenterKey={recenterKey} controlsRef={controlsRef} />
-        <OrbitControls ref={controlsRef} minDistance={0.9} maxDistance={3.5} />
-      </Suspense>
-    </Canvas>
-  )
+  return null
 }
