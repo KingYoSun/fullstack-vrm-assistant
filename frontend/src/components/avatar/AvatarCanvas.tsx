@@ -102,9 +102,9 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, restMap: Map<string
 
   Object.entries(motion.tracks ?? {}).forEach(([bone, frames]) => {
     if (!Array.isArray(frames) || frames.length === 0) return
-    const node = humanoid.getBoneNode(bone as never)
+    const node = humanoid.getRawBoneNode(bone as never)
     if (!node) return
-    const target = `${bone}.quaternion`
+    const target = `${node.name || bone}.quaternion`
     const times = toTimes(frames)
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
@@ -124,7 +124,7 @@ const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, restMap: Map<string
   })
 
   if (motion.rootPosition?.length) {
-    const hips = humanoid.getBoneNode('hips')
+    const hips = humanoid.getRawBoneNode('hips' as never)
     if (hips) {
       const times = toTimes(motion.rootPosition)
       const values = new Float32Array(motion.rootPosition.length * 3)
@@ -234,6 +234,9 @@ function VrmModel({ url, mouthOpen, onLoaded, onVrmLoaded }: VrmModelProps) {
   const vrm = useMemo(() => {
     const loaded = gltf.userData.vrm as VRM | undefined
     if (!loaded) return null
+    if (loaded.humanoid) {
+      loaded.humanoid.autoUpdateHumanBones = false
+    }
     VRMUtils.removeUnnecessaryJoints(loaded.scene)
     VRMUtils.removeUnnecessaryVertices(loaded.scene)
     loaded.scene.traverse((obj) => {
@@ -259,7 +262,7 @@ function VrmModel({ url, mouthOpen, onLoaded, onVrmLoaded }: VrmModelProps) {
     vrm.expressionManager?.setValue('ih', intensity * 0.25)
     vrm.expressionManager?.update()
     vrm.update(delta)
-  })
+  }, -1)
 
   return vrm ? <primitive object={vrm.scene} /> : null
 }
@@ -328,7 +331,7 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
 
   useFrame((_, delta) => {
     mixerRef.current?.update(delta)
-  })
+  }, -2)
 
   useEffect(() => {
     if (!vrm || !motionPlayback || !mixerRef.current) return
