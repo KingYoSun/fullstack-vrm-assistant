@@ -318,21 +318,28 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
 
   useEffect(() => {
     if (!vrm || !motionPlayback || !mixerRef.current) return
-    const clip = buildMotionClip(vrm, motionPlayback, new Map())
-    if (!clip || clip.tracks.length === 0) {
+    const clip = motionJsonToClip({
+      jobId: motionPlayback.jobId,
+      durationSec: motionPlayback.durationSec,
+      tracks: motionPlayback.tracks,
+      rootPosition: motionPlayback.rootPosition,
+    })
+    const retargeted = retargetVrmaClip(clip, vrm)
+    if (!retargeted || retargeted.tracks.length === 0) {
+      appendLog('motion: no applicable tracks for VRM')
       return
     }
     const mixer = mixerRef.current
     if (lastActionRef.current) {
       lastActionRef.current.stop()
     }
-    const action = mixer.clipAction(clip)
+    const action = mixer.clipAction(retargeted)
     action.reset()
     action.setLoop(LoopOnce, 1)
     action.clampWhenFinished = true
     action.play()
     lastActionRef.current = action
-    appendLog(`motion: play job=${motionPlayback.jobId || 'n/a'} (${clip.tracks.length} tracks)`)
+    appendLog(`motion: play job=${motionPlayback.jobId || 'n/a'} (${retargeted.tracks.length} tracks)`)
   }, [motionPlaybackKey, motionPlayback, vrm, appendLog])
 
   useEffect(() => {

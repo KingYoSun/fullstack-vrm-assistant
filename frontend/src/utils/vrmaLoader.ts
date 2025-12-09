@@ -26,7 +26,7 @@ const BONES_NAME_LIST: Record<string, string[]> = {
 }
 
 const allCandidates = Object.entries(BONES_NAME_LIST).flatMap(([key, aliases]) =>
-  aliases.map((alias) => [alias.toLowerCase(), key] as const),
+  aliases.concat(key).map((alias) => [alias.toLowerCase(), key] as const),
 )
 
 const remapTrackNames = (clip: AnimationClip) => {
@@ -77,4 +77,42 @@ export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): AnimationClip =
     filtered.push(track)
   })
   return new THREE.AnimationClip(clip.name || 'vrma', clip.duration, filtered)
+}
+
+export const motionJsonToClip = (motion: {
+  jobId?: string
+  durationSec?: number
+  tracks?: Record<string, Array<{ t: number; x: number; y: number; z: number; w: number }>>
+  rootPosition?: Array<{ t: number; x: number; y: number; z: number }>
+}): AnimationClip => {
+  const tracks: KeyframeTrack[] = []
+  const toTimes = (frames: { t: number }[]) => Float32Array.from(frames.map((f) => f.t ?? 0))
+
+  Object.entries(motion.tracks || {}).forEach(([bone, frames]) => {
+    if (!Array.isArray(frames) || frames.length === 0) return
+    const times = toTimes(frames)
+    const values = new Float32Array(frames.length * 4)
+    frames.forEach((frame, idx) => {
+      const offset = idx * 4
+      values[offset] = frame.x ?? 0
+      values[offset + 1] = frame.y ?? 0
+      values[offset + 2] = frame.z ?? 0
+      values[offset + 3] = frame.w ?? 1
+    })
+    tracks.push(new THREE.QuaternionKeyframeTrack(`${bone}.quaternion`, times, values))
+  })
+
+  if (motion.rootPosition?.length) {
+    const times = toTimes(motion.rootPosition)
+    const values = new Float32Array(motion.rootPosition.length * 3)
+    motion.rootPosition.forEach((frame, idx) => {
+      const offset = idx * 3
+      values[offset] = frame.x ?? 0
+      values[offset + 1] = frame.y ?? 0
+      values[offset + 2] = frame.z ?? 0
+    })
+    tracks.push(new THREE.VectorKeyframeTrack('hips.position', times, values))
+  }
+
+  return new THREE.AnimationClip(`motion-${motion.jobId || Date.now()}`, motion.durationSec ?? -1, tracks)
 }
