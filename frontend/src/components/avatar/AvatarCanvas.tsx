@@ -268,6 +268,20 @@ export function AvatarCanvas({ url, mouthOpen, onLoaded, recenterKey }: AvatarCa
 
   const handleVrmLoaded = useCallback((loaded: VRM) => {
     setVrm(loaded)
+    if (loaded.humanoid) {
+      const raws = Object.values(loaded.humanoid.humanBones || {}).map((b) => ({
+        humanBoneName: b.humanBoneName,
+        nodeName: b.node?.name,
+      }))
+      // eslint-disable-next-line no-console
+      console.info('VRM humanoid bones (raw)', raws)
+      const normalized = Object.values(loaded.humanoid.humanBones || {}).map((b) => ({
+        humanBoneName: b.humanBoneName,
+        nodeName: loaded.humanoid?.getNormalizedBoneNode(b.humanBoneName as never)?.name,
+      }))
+      // eslint-disable-next-line no-console
+      console.info('VRM humanoid bones (normalized)', normalized)
+    }
   }, [])
 
   return (
@@ -325,12 +339,16 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
       rootPosition: motionPlayback.rootPosition,
     })
     const originalNames = clip.tracks.map((t) => t.name)
-    const retargeted = retargetVrmaClip(clip, vrm)
+    const { clip: retargeted, missing } = retargetVrmaClip(clip, vrm)
     if (!retargeted || retargeted.tracks.length === 0) {
       appendLog('motion: no applicable tracks for VRM (retargeted 0)')
       // eslint-disable-next-line no-console
-      console.warn('motion retarget: no tracks bound', { originalNames })
+      console.warn('motion retarget: no tracks bound', { originalNames, missing })
       return
+    }
+    if (missing.length) {
+      // eslint-disable-next-line no-console
+      console.warn(`motion retarget: missing ${missing.length}`, missing.slice(0, 12))
     }
     const mixer = mixerRef.current
     if (lastActionRef.current) {
@@ -356,7 +374,11 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
     loadVrmaClip(vrmaUrl, vrm)
       .then((clip) => {
         if (aborted || !clip || !mixerRef.current) return
-        const retargeted = retargetVrmaClip(clip, vrm)
+        const { clip: retargeted, missing } = retargetVrmaClip(clip, vrm)
+        if (missing.length) {
+          // eslint-disable-next-line no-console
+          console.warn(`vrma retarget: missing ${missing.length}`, missing.slice(0, 12))
+        }
         if (lastActionRef.current) {
           lastActionRef.current.stop()
         }

@@ -61,9 +61,11 @@ const resolveHumanBone = (base: string): string | null => {
   return hit ? hit[1] : null
 }
 
-export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): AnimationClip => {
+export type RetargetResult = { clip: AnimationClip; missing: string[] }
+
+export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): RetargetResult => {
   const humanoid = vrm.humanoid
-  if (!humanoid) return clip
+  if (!humanoid) return { clip, missing: [] }
   const filtered: KeyframeTrack[] = []
   const missing: string[] = []
   clip.tracks.forEach((track) => {
@@ -81,11 +83,8 @@ export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): AnimationClip =
     track.name = `${node.name}.${prop}`
     filtered.push(track)
   })
-  if (missing.length) {
-    // eslint-disable-next-line no-console
-    console.warn(`VRMA/motion retarget: missing ${missing.length} track(s)`, missing.slice(0, 8))
-  }
-  return new THREE.AnimationClip(clip.name || 'vrma', clip.duration, filtered)
+  const retargeted = new THREE.AnimationClip(clip.name || 'vrma', clip.duration, filtered)
+  return { clip: retargeted, missing }
 }
 
 export const motionJsonToClip = (motion: {
