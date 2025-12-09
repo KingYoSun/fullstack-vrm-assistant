@@ -23,9 +23,15 @@
 - backend は ProviderRegistry 経由で motion_service を HTTP 呼び出しし、`job_id` と保存パス/URL を返す。会話 WS で `assistant_motion` イベントを流し、再生指示を front に通知。
 - frontend は REST/WS で取得した JSON を three.js `AnimationMixer` + `QuaternionKeyframeTrack` で再生。顔表情/口パクとは別レイヤーにし、身体ボーンのみ適用。
 
+## 会話フロー/統合方針（検討とデフォルト案）
+- LLM 出力と同時に「モーション用プロンプト」を生成する: System Prompt に「応答テキスト＋モーション記述（例: `motion_prompt`: 5秒で腕を振る、歩行など）」を追加するガイドラインを組み込み、LLM から motion 用短文を抽出する。最初は System Prompt を拡張し、LLM 応答のメタ情報として `motion_prompt` を返す形を目指す。
+- 呼び出しタイミング: LLM テキストが確定したタイミングで motion_service を非同期発火し、TTS と並列で進める（同一ジョブIDで管理）。TTS 完了を待たずに motion を生成・先行ロードし、WS で `assistant_motion` を送る。パイプライン: STT → LLM(テキスト＋motion_prompt) → [並列] TTS と motion/generate → フロントが音声とモーションを同期再生（開始タイミングを合わせるロジックは別途）。
+- フォールバック: LLM から `motion_prompt` が得られない場合は UI ボタンで手動生成を許容する。初期段階では「LLM 応答確定後に motion_prompt があれば自動生成、なければスキップ」をデフォルトとし、後から UI で再生成を追加。
+- WS/REST: backend が `assistant_motion` イベントでモーション URL とメタを送る。REST の `/api/v1/motion/generate` はテスト/手動用としても利用する。
+
 ## 実装タスク
 ### 1. motion_service（SnapMoGen ラッパ）
-- Dockerfile: `nvcr.io/nvidia/pytorch:24.10-py3` 系ベースで SnapMoGen を clone。`torch*` はベースイメージを信頼し requirements から除外。`fastapi`, `uvicorn[standard]`, `pydantic` を追加。
+- Dockerfile: `nvidia/cuda:13.0.2-devel-ubuntu24.04` をベースに（`docker/tts-fish-speech/Dockerfile` と同系）、Python 3.12 + pip を導入。SnapMoGen を clone し、requirements から `torch*` を除外しつつ、CUDA 対応 PyTorch（例: torch==2.9.0 + cu130）を Dockerfile 内で明示インストールする。`fastapi`, `uvicorn[standard]`, `pydantic` を追加。
 - エンドポイント:
   - `GET /health` → 200
   - `POST /v1/motion/generate`: 入力 `{prompt, seed?, steps?, guidance?, format? ("vrm-json" default)}`。内部で SnapMoGen 推論 (`gen_momask_plus.py`) を実行し、`job_id` 生成。
