@@ -333,6 +333,8 @@ type AppState = {
   motionError: string | null
   motionLoading: boolean
   lastMotionEvent: MotionDiagResult | null
+  motionPlayback: MotionDiagResult | null
+  motionPlaybackKey: number
   embeddingText: string
   embeddingResult: EmbeddingDiagResult | null
   embeddingError: string | null
@@ -385,6 +387,7 @@ type AppActions = {
   setTtsText: (value: string) => void
   setTtsVoice: (value: string) => void
   setMotionPrompt: (value: string) => void
+  triggerMotionPlayback: (motion: MotionDiagResult | null) => void
   setEmbeddingText: (value: string) => void
   setRagQuery: (value: string) => void
   setRagTopK: (value: string) => void
@@ -637,6 +640,10 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
 
       tick()
+      const motion = get().lastMotionEvent
+      if (motion) {
+        triggerMotionPlayback(motion)
+      }
       source.start()
       source.onended = () => {
         stopAudioMeter(false)
@@ -1064,7 +1071,12 @@ export const useAppStore = create<AppStore>((set, get) => {
         body: JSON.stringify({ prompt }),
       })
       const result = normalizeMotionPayload(data)
-      set({ motionResult: result })
+      set({
+        motionResult: result,
+        lastMotionEvent: result,
+        motionPlayback: result,
+        motionPlaybackKey: Date.now(),
+      })
       appendLog(`diagnostics: motion ok (job=${result.jobId || 'n/a'})`)
     } catch (err) {
       const message = parseError(err)
@@ -1523,6 +1535,8 @@ export const useAppStore = create<AppStore>((set, get) => {
   const setTtsText = (value: string) => set({ ttsText: value })
   const setTtsVoice = (value: string) => set({ ttsVoice: value })
   const setMotionPrompt = (value: string) => set({ motionPrompt: value })
+  const triggerMotionPlayback = (motion: MotionDiagResult | null) =>
+    set({ motionPlayback: motion, motionPlaybackKey: Date.now() })
   const setEmbeddingText = (value: string) => set({ embeddingText: value })
   const setRagQuery = (value: string) => set({ ragQuery: value })
   const setRagTopK = (value: string) => set({ ragTopK: value })
@@ -1603,6 +1617,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     motionError: null,
     motionLoading: false,
     lastMotionEvent: null,
+    motionPlayback: null,
+    motionPlaybackKey: 0,
     embeddingText: '3D アバターの対話体験を向上させるためのヒントを教えて',
     embeddingResult: null,
     embeddingError: null,
@@ -1652,6 +1668,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     setTtsText,
     setTtsVoice,
     setMotionPrompt,
+    triggerMotionPlayback,
     setEmbeddingText,
     setRagQuery,
     setRagTopK,

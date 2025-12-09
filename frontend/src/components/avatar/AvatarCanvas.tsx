@@ -12,9 +12,22 @@ import {
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
 import { Html, OrbitControls } from '@react-three/drei'
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
-import { Box3, PerspectiveCamera, Vector3 } from 'three'
+import {
+  AnimationAction,
+  AnimationClip,
+  AnimationMixer,
+  Box3,
+  LoopOnce,
+  PerspectiveCamera,
+  Quaternion,
+  QuaternionKeyframeTrack,
+  Vector3,
+  VectorKeyframeTrack,
+} from 'three'
 import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+import { useAppStore } from '../../store/appStore'
+import type { MotionDiagResult } from '../../types/app'
 
 type VrmModelProps = {
   url: string
@@ -42,6 +55,51 @@ const focusPosition = new Vector3()
 const frontDirection = new Vector3()
 const directionBuffer = new Vector3()
 const cameraPositionBuffer = new Vector3()
+const tmpQuat = new Quaternion()
+
+const buildMotionClip = (vrm: VRM, motion: MotionDiagResult): AnimationClip | null => {
+  const humanoid = vrm.humanoid
+  if (!humanoid) return null
+
+  const tracks: (QuaternionKeyframeTrack | VectorKeyframeTrack)[] = []
+
+  const toTimes = (frames: { t: number }[]) => Float32Array.from(frames.map((f) => f.t ?? 0))
+
+  Object.entries(motion.tracks ?? {}).forEach(([bone, frames]) => {
+    if (!Array.isArray(frames) || frames.length === 0) return
+    const node = humanoid.getBoneNode(bone as never)
+    if (!node) return
+    const times = toTimes(frames)
+    const values = new Float32Array(frames.length * 4)
+    frames.forEach((frame, idx) => {
+      tmpQuat.set(frame.x ?? 0, frame.y ?? 0, frame.z ?? 0, frame.w ?? 1).normalize()
+      const offset = idx * 4
+      values[offset] = tmpQuat.x
+      values[offset + 1] = tmpQuat.y
+      values[offset + 2] = tmpQuat.z
+      values[offset + 3] = tmpQuat.w
+    })
+    tracks.push(new QuaternionKeyframeTrack(`${node.name}.quaternion`, times, values))
+  })
+
+  if (motion.rootPosition?.length) {
+    const hips = humanoid.getBoneNode('hips')
+    if (hips) {
+      const times = toTimes(motion.rootPosition)
+      const values = new Float32Array(motion.rootPosition.length * 3)
+      motion.rootPosition.forEach((frame, idx) => {
+        const offset = idx * 3
+        values[offset] = frame.x ?? 0
+        values[offset + 1] = frame.y ?? 0
+        values[offset + 2] = frame.z ?? 0
+      })
+      tracks.push(new VectorKeyframeTrack(`${hips.name}.position`, times, values))
+    }
+  }
+
+  if (!tracks.length) return null
+  return new AnimationClip(`motion-${motion.jobId || Date.now()}`, motion.durationSec ?? -1, tracks)
+}
 
 const adjustCameraToHeadshot = (vrm: VRM, camera: PerspectiveCamera, controls?: OrbitControlsImpl | null) => {
   vrm.scene.updateWorldMatrix(true, true)
@@ -178,10 +236,48 @@ function CameraFitter({ vrm, recenterKey, controlsRef }: CameraFitterProps) {
 export function AvatarCanvas({ url, mouthOpen, onLoaded, recenterKey }: AvatarCanvasProps) {
   const [vrm, setVrm] = useState<VRM | null>(null)
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
+  const mixerRef = useRef<AnimationMixer | null>(null)
+  const lastActionRef = useRef<AnimationAction | null>(null)
+  const motionPlayback = useAppStore((s) => s.motionPlayback)
+  const motionPlaybackKey = useAppStore((s) => s.motionPlaybackKey)
+  const appendLog = useAppStore((s) => s.appendLog)
 
   const handleVrmLoaded = useCallback((loaded: VRM) => {
     setVrm(loaded)
   }, [])
+
+  useEffect(() => {
+    if (!vrm) return undefined
+    mixerRef.current = new AnimationMixer(vrm.scene)
+    return () => {
+      mixerRef.current?.stopAllAction()
+      mixerRef.current = null
+      lastActionRef.current = null
+    }
+  }, [vrm])
+
+  useFrame((_, delta) => {
+    mixerRef.current?.update(delta)
+  })
+
+  useEffect(() => {
+    if (!vrm || !motionPlayback || !mixerRef.current) return
+    const clip = buildMotionClip(vrm, motionPlayback)
+    if (!clip || clip.tracks.length === 0) {
+      return
+    }
+    const mixer = mixerRef.current
+    if (lastActionRef.current) {
+      lastActionRef.current.stop()
+    }
+    const action = mixer.clipAction(clip)
+    action.reset()
+    action.setLoop(LoopOnce, 1)
+    action.clampWhenFinished = true
+    action.play()
+    lastActionRef.current = action
+    appendLog(`motion: play job=${motionPlayback.jobId || 'n/a'} (${clip.tracks.length} tracks)`)
+  }, [motionPlaybackKey, motionPlayback, vrm, appendLog])
 
   return (
     <Canvas camera={{ position: [0, 1.4, 2.4], fov: 28 }} shadows style={{ height: '100%', width: '100%' }}>
