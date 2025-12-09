@@ -1,31 +1,17 @@
 import { Activity, ChevronDown, ChevronUp, History } from 'lucide-react'
-import type { ChatTurn, LatencyMap } from '../../types/app'
+import { useAppStore } from '../../store/appStore'
 
-type StreamPanelProps = {
-  isMobile: boolean
-  streamCollapsed: boolean
-  historyOpen: boolean
-  showLatencyPanel: boolean
-  partial: string
-  chatTurns: ChatTurn[]
-  latency: LatencyMap
-  onToggleHistory: () => void
-  onToggleLatency: () => void
-  onToggleStream: () => void
-}
-
-export function StreamPanel({
-  isMobile,
-  streamCollapsed,
-  historyOpen,
-  showLatencyPanel,
-  partial,
-  chatTurns,
-  latency,
-  onToggleHistory,
-  onToggleLatency,
-  onToggleStream,
-}: StreamPanelProps) {
+export function StreamPanel() {
+  const isMobile = useAppStore((s) => s.isMobile)
+  const streamCollapsed = useAppStore((s) => s.streamCollapsed)
+  const historyOpen = useAppStore((s) => s.historyOpen)
+  const showLatencyPanel = useAppStore((s) => s.showLatencyPanel)
+  const partial = useAppStore((s) => s.partial)
+  const chatTurns = useAppStore((s) => s.chatTurns)
+  const latency = useAppStore((s) => s.latency)
+  const toggleHistory = useAppStore((s) => s.toggleHistory)
+  const toggleLatency = useAppStore((s) => s.toggleLatency)
+  const toggleStreamCollapsed = useAppStore((s) => s.toggleStreamCollapsed)
   const latestTurn = chatTurns.at(-1)
 
   return (
@@ -37,13 +23,13 @@ export function StreamPanel({
           </div>
         ) : null}
         <div className="stream-actions">
-          <button className="ghost compact" onClick={onToggleHistory} disabled={streamCollapsed}>
+          <button className="ghost compact" onClick={toggleHistory} disabled={streamCollapsed}>
             {isMobile ? <History size={18} /> : historyOpen ? 'history ▲' : 'history ▼'}
           </button>
-          <button className="ghost compact" onClick={onToggleLatency} disabled={streamCollapsed}>
+          <button className="ghost compact" onClick={toggleLatency} disabled={streamCollapsed}>
             {isMobile ? <Activity size={18} /> : showLatencyPanel ? 'latency ▲' : 'latency ▼'}
           </button>
-          <button className="ghost compact collapse-action" onClick={onToggleStream}>
+          <button className="ghost compact collapse-action" onClick={toggleStreamCollapsed}>
             {isMobile ? (streamCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />) : streamCollapsed ? '展開' : '収納'}
           </button>
         </div>

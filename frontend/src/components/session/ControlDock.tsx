@@ -1,40 +1,28 @@
 import { Activity, Mic, MicOff, Plug, PlugZap } from 'lucide-react'
-import type { WsState } from '../../types/app'
+import { useAppStore } from '../../store/appStore'
 
-type ControlDockProps = {
-  state: WsState
-  micActive: boolean
-  micSupported: boolean
-  isMobile: boolean
-  canResetCamera: boolean
-  onConnect: () => void
-  onDisconnect: () => void
-  onStartMic: () => void
-  onStopMic: () => void
-  onResetCamera: () => void
-}
+export function ControlDock() {
+  const state = useAppStore((s) => s.state)
+  const micActive = useAppStore((s) => s.micActive)
+  const micSupported = useAppStore((s) => s.micSupported)
+  const isMobile = useAppStore((s) => s.isMobile)
+  const avatarName = useAppStore((s) => s.avatarName)
+  const connect = useAppStore((s) => s.connect)
+  const disconnect = useAppStore((s) => s.disconnect)
+  const startMic = useAppStore((s) => s.startMic)
+  const stopMic = useAppStore((s) => s.stopMic)
+  const incrementCameraResetKey = useAppStore((s) => s.incrementCameraResetKey)
 
-export function ControlDock({
-  state,
-  micActive,
-  micSupported,
-  isMobile,
-  canResetCamera,
-  onConnect,
-  onDisconnect,
-  onStartMic,
-  onStopMic,
-  onResetCamera,
-}: ControlDockProps) {
   const isConnected = state === 'connected'
   const isConnecting = state === 'connecting'
+  const canResetCamera = Boolean(avatarName)
 
   return (
     <div className="control-dock glass-panel">
       <div className="control-row">
         <button
           className={`icon-button ${isConnected ? 'active' : ''}`}
-          onClick={isConnected ? onDisconnect : onConnect}
+          onClick={isConnected ? disconnect : connect}
           disabled={isConnecting}
           aria-label={isConnected ? 'Disconnect' : 'Connect'}
         >
@@ -43,14 +31,14 @@ export function ControlDock({
         </button>
         <button
           className={`icon-button ${micActive ? 'hot' : ''}`}
-          onClick={micActive ? onStopMic : onStartMic}
+          onClick={micActive ? () => stopMic({ flush: true, reason: 'manual stop' }) : startMic}
           disabled={!isConnected || (!micActive && !micSupported)}
           aria-label={micActive ? '録音停止' : '録音開始'}
         >
           {micActive ? <MicOff size={20} /> : <Mic size={20} />}
           {!isMobile ? <span>{micActive ? '録音停止' : '録音開始'}</span> : null}
         </button>
-        <button className="ghost control-aux" onClick={onResetCamera} disabled={!canResetCamera}>
+        <button className="ghost control-aux" onClick={incrementCameraResetKey} disabled={!canResetCamera}>
           <Activity size={20} />
           {!isMobile ? <span>視点リセット</span> : null}
         </button>

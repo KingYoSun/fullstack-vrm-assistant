@@ -1,43 +1,29 @@
 import { type ChangeEvent, type MutableRefObject } from 'react'
 import { ChevronDown, ChevronUp, FlaskConical, ScrollText, Settings2, Upload, UserRound } from 'lucide-react'
+import { useAppStore } from '../../store/appStore'
 
 type RemotePanelProps = {
-  isMobile: boolean
-  remoteCollapsed: boolean
-  connectionDrawerOpen: boolean
-  personaDrawerOpen: boolean
-  diagnosticsDrawerOpen: boolean
-  logsDrawerOpen: boolean
-  mouthOpen: number
-  avatarName: string | null
   vrmFileInputRef: MutableRefObject<HTMLInputElement | null>
-  onToggleRemote: () => void
-  onToggleConnection: () => void
-  onTogglePersona: () => void
-  onToggleDiagnostics: () => void
-  onToggleLogs: () => void
   onOpenVrmFilePicker: () => void
   onVrmFileChange: (event: ChangeEvent<HTMLInputElement>) => void
 }
 
 export function RemotePanel({
-  isMobile,
-  remoteCollapsed,
-  connectionDrawerOpen,
-  personaDrawerOpen,
-  diagnosticsDrawerOpen,
-  logsDrawerOpen,
-  mouthOpen,
-  avatarName,
   vrmFileInputRef,
-  onToggleRemote,
-  onToggleConnection,
-  onTogglePersona,
-  onToggleDiagnostics,
-  onToggleLogs,
   onOpenVrmFilePicker,
   onVrmFileChange,
 }: RemotePanelProps) {
+  const isMobile = useAppStore((s) => s.isMobile)
+  const remoteCollapsed = useAppStore((s) => s.remoteCollapsed)
+  const connectionDrawerOpen = useAppStore((s) => s.connectionDrawerOpen)
+  const personaDrawerOpen = useAppStore((s) => s.personaDrawerOpen)
+  const diagnosticsDrawerOpen = useAppStore((s) => s.diagnosticsDrawerOpen)
+  const logsDrawerOpen = useAppStore((s) => s.logsDrawerOpen)
+  const mouthOpen = useAppStore((s) => Math.min(1, Math.max(s.audioMouth, s.avatarMouth)))
+  const avatarName = useAppStore((s) => s.avatarName)
+  const toggleRemoteCollapsed = useAppStore((s) => s.toggleRemoteCollapsed)
+  const toggleDrawer = useAppStore((s) => s.toggleDrawer)
+
   return (
     <div className={`remote-fab glass-panel ${remoteCollapsed ? 'collapsed' : ''}`}>
       {!isMobile ? (
@@ -60,29 +46,33 @@ export function RemotePanel({
         />
         <button
           className={`remote-chip ${connectionDrawerOpen ? 'active' : ''}`}
-          onClick={onToggleConnection}
+          onClick={() => toggleDrawer('connectionDrawerOpen')}
           aria-label="接続 / ソース"
         >
           <Settings2 size={18} />
         </button>
         <button
           className={`remote-chip ${personaDrawerOpen ? 'active' : ''}`}
-          onClick={onTogglePersona}
+          onClick={() => toggleDrawer('personaDrawerOpen')}
           aria-label="キャラクター"
         >
           <UserRound size={18} />
         </button>
         <button
           className={`remote-chip ${diagnosticsDrawerOpen ? 'active' : ''}`}
-          onClick={onToggleDiagnostics}
+          onClick={() => toggleDrawer('diagnosticsDrawerOpen')}
           aria-label="Diagnostics"
         >
           <FlaskConical size={18} />
         </button>
-        <button className={`remote-chip ${logsDrawerOpen ? 'active' : ''}`} onClick={onToggleLogs} aria-label="WS / オーディオ">
+        <button
+          className={`remote-chip ${logsDrawerOpen ? 'active' : ''}`}
+          onClick={() => toggleDrawer('logsDrawerOpen')}
+          aria-label="WS / オーディオ"
+        >
           <ScrollText size={18} />
         </button>
-        <button className="remote-chip collapse-toggle" onClick={onToggleRemote}>
+        <button className="remote-chip collapse-toggle" onClick={toggleRemoteCollapsed}>
           {isMobile ? (remoteCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />) : remoteCollapsed ? '収納' : '展開'}
         </button>
       </div>

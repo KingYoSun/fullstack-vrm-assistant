@@ -1,8 +1,10 @@
-import type { LogEntry } from '../../types/app'
+import { useAppStore } from '../../store/appStore'
 
-type LogsDrawerProps = { open: boolean; logs: LogEntry[]; onClose: () => void }
+export function LogsDrawer() {
+  const open = useAppStore((s) => s.logsDrawerOpen)
+  const logs = useAppStore((s) => s.logs)
+  const setLogsDrawerOpen = useAppStore((s) => s.setLogsDrawerOpen)
 
-export function LogsDrawer({ open, logs, onClose }: LogsDrawerProps) {
   if (!open) return null
 
   return (
@@ -14,7 +16,7 @@ export function LogsDrawer({ open, logs, onClose }: LogsDrawerProps) {
         </div>
         <div className="drawer-head-actions">
           <div className="pill pill-soft">max 80 entries</div>
-          <button className="ghost" onClick={onClose}>
+          <button className="ghost" onClick={() => setLogsDrawerOpen(false)}>
             収納
           </button>
         </div>

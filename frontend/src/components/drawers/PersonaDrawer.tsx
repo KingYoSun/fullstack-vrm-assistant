@@ -1,70 +1,37 @@
-import type { CharacterProfile, SystemPrompt } from '../../types/app'
+import { DEFAULTS, useAppStore } from '../../store/appStore'
 
-type PersonaDrawerProps = {
-  open: boolean
-  characters: CharacterProfile[]
-  characterForm: { name: string; persona: string; speakingStyle: string }
-  characterEditingId: number | null
-  characterError: string | null
-  characterLoading: boolean
-  characterSaving: boolean
-  characterDeletingId: number | null
-  activeCharacterId: number | null
-  systemPrompts: SystemPrompt[]
-  systemPromptForm: { title: string; content: string; isActive: boolean }
-  systemPromptEditingId: number | null
-  systemPromptError: string | null
-  systemPromptLoading: boolean
-  systemPromptSaving: boolean
-  systemPromptDeletingId: number | null
-  defaultSystemPrompt: string
-  onClose: () => void
-  onSelectCharacter: (id: number | null) => void
-  onStartEditCharacter: (profile: CharacterProfile) => void
-  onDeleteCharacter: (id: number) => void
-  onChangeCharacterForm: (key: 'name' | 'persona' | 'speakingStyle', value: string) => void
-  onSaveCharacter: () => void
-  onResetCharacterForm: () => void
-  onStartEditSystemPrompt: (prompt: SystemPrompt) => void
-  onDeleteSystemPrompt: (id: number) => void
-  onSetActiveSystemPrompt: (id: number) => void
-  onChangeSystemPromptForm: (key: 'title' | 'content' | 'isActive', value: string | boolean) => void
-  onSaveSystemPrompt: () => void
-  onResetSystemPromptForm: () => void
-}
+export function PersonaDrawer() {
+  const open = useAppStore((s) => s.personaDrawerOpen)
+  const characters = useAppStore((s) => s.characters)
+  const characterForm = useAppStore((s) => s.characterForm)
+  const characterEditingId = useAppStore((s) => s.characterEditingId)
+  const characterError = useAppStore((s) => s.characterError)
+  const characterLoading = useAppStore((s) => s.characterLoading)
+  const characterSaving = useAppStore((s) => s.characterSaving)
+  const characterDeletingId = useAppStore((s) => s.characterDeletingId)
+  const activeCharacterId = useAppStore((s) => s.activeCharacterId)
+  const systemPrompts = useAppStore((s) => s.systemPrompts)
+  const systemPromptForm = useAppStore((s) => s.systemPromptForm)
+  const systemPromptEditingId = useAppStore((s) => s.systemPromptEditingId)
+  const systemPromptError = useAppStore((s) => s.systemPromptError)
+  const systemPromptLoading = useAppStore((s) => s.systemPromptLoading)
+  const systemPromptSaving = useAppStore((s) => s.systemPromptSaving)
+  const systemPromptDeletingId = useAppStore((s) => s.systemPromptDeletingId)
+  const setPersonaDrawerOpen = useAppStore((s) => s.setPersonaDrawerOpen)
+  const selectCharacter = useAppStore((s) => s.selectCharacter)
+  const startEditCharacter = useAppStore((s) => s.startEditCharacter)
+  const deleteCharacter = useAppStore((s) => s.deleteCharacter)
+  const changeCharacterForm = useAppStore((s) => s.changeCharacterForm)
+  const saveCharacter = useAppStore((s) => s.saveCharacter)
+  const resetCharacterForm = useAppStore((s) => s.resetCharacterForm)
+  const startEditSystemPrompt = useAppStore((s) => s.startEditSystemPrompt)
+  const deleteSystemPrompt = useAppStore((s) => s.deleteSystemPrompt)
+  const setActiveSystemPrompt = useAppStore((s) => s.setActiveSystemPrompt)
+  const changeSystemPromptForm = useAppStore((s) => s.changeSystemPromptForm)
+  const saveSystemPrompt = useAppStore((s) => s.saveSystemPrompt)
+  const resetSystemPromptForm = useAppStore((s) => s.resetSystemPromptForm)
+  const defaultSystemPrompt = DEFAULTS.SYSTEM_PROMPT
 
-export function PersonaDrawer({
-  open,
-  characters,
-  characterForm,
-  characterEditingId,
-  characterError,
-  characterLoading,
-  characterSaving,
-  characterDeletingId,
-  activeCharacterId,
-  systemPrompts,
-  systemPromptForm,
-  systemPromptEditingId,
-  systemPromptError,
-  systemPromptLoading,
-  systemPromptSaving,
-  systemPromptDeletingId,
-  defaultSystemPrompt,
-  onClose,
-  onSelectCharacter,
-  onStartEditCharacter,
-  onDeleteCharacter,
-  onChangeCharacterForm,
-  onSaveCharacter,
-  onResetCharacterForm,
-  onStartEditSystemPrompt,
-  onDeleteSystemPrompt,
-  onSetActiveSystemPrompt,
-  onChangeSystemPromptForm,
-  onSaveSystemPrompt,
-  onResetSystemPromptForm,
-}: PersonaDrawerProps) {
   if (!open) return null
 
   return (
@@ -79,7 +46,7 @@ export function PersonaDrawer({
         </div>
         <div className="drawer-head-actions">
           <span className="pill pill-soft">150文字以内</span>
-          <button className="ghost" onClick={onClose}>
+          <button className="ghost" onClick={() => setPersonaDrawerOpen(false)}>
             収納
           </button>
         </div>
@@ -92,7 +59,7 @@ export function PersonaDrawer({
                 <div className="eyebrow">デフォルト</div>
                 <h4>キャラクターなし</h4>
               </div>
-              <button className="ghost" onClick={() => onSelectCharacter(null)} disabled={activeCharacterId === null}>
+              <button className="ghost" onClick={() => selectCharacter(null)} disabled={activeCharacterId === null}>
                 適用
               </button>
             </div>
@@ -116,14 +83,14 @@ export function PersonaDrawer({
               <p className="mono small persona-text">{character.persona}</p>
               {character.speakingStyle ? <p className="mono small persona-text faint">話し方: {character.speakingStyle}</p> : null}
               <div className="card-actions">
-                <button onClick={() => onSelectCharacter(character.id)} disabled={activeCharacterId === character.id}>
+                <button onClick={() => selectCharacter(character.id)} disabled={activeCharacterId === character.id}>
                   このキャラを使う
                 </button>
-                <button onClick={() => onStartEditCharacter(character)} className="ghost">
+                <button onClick={() => startEditCharacter(character)} className="ghost">
                   編集
                 </button>
                 <button
-                  onClick={() => onDeleteCharacter(character.id)}
+                  onClick={() => deleteCharacter(character.id)}
                   className="ghost danger"
                   disabled={characterDeletingId === character.id}
                 >
@@ -140,7 +107,7 @@ export function PersonaDrawer({
             <label>名前</label>
             <input
               value={characterForm.name}
-              onChange={(e) => onChangeCharacterForm('name', e.target.value)}
+              onChange={(e) => changeCharacterForm('name', e.target.value)}
               placeholder="例: 明るい秘書 / 落ち着いた案内役"
             />
           </div>
@@ -148,7 +115,7 @@ export function PersonaDrawer({
             <label>人物像・役割</label>
             <textarea
               value={characterForm.persona}
-              onChange={(e) => onChangeCharacterForm('persona', e.target.value)}
+              onChange={(e) => changeCharacterForm('persona', e.target.value)}
               rows={3}
               placeholder="例: 元気でテンポが良い。問いの意図を汲み、余計な枕詞は避ける。"
             />
@@ -157,17 +124,17 @@ export function PersonaDrawer({
             <label>話し方のヒント（任意）</label>
             <textarea
               value={characterForm.speakingStyle}
-              onChange={(e) => onChangeCharacterForm('speakingStyle', e.target.value)}
+              onChange={(e) => changeCharacterForm('speakingStyle', e.target.value)}
               rows={2}
               placeholder="例: 言い切り口調。数字は具体的に、敬語は簡潔に。"
             />
           </div>
           {characterError ? <p className="error-text">{characterError}</p> : null}
           <div className="actions">
-            <button onClick={onSaveCharacter} disabled={characterSaving}>
+            <button onClick={saveCharacter} disabled={characterSaving}>
               {characterSaving ? '保存中...' : '保存して適用'}
             </button>
-            <button onClick={onResetCharacterForm} className="ghost">
+            <button onClick={resetCharacterForm} className="ghost">
               新規作成にリセット
             </button>
           </div>
@@ -202,12 +169,12 @@ export function PersonaDrawer({
               </div>
               <p className="mono small persona-text">{prompt.content}</p>
               <div className="card-actions">
-                <button onClick={() => onStartEditSystemPrompt(prompt)} className="ghost">
+                <button onClick={() => startEditSystemPrompt(prompt)} className="ghost">
                   編集
                 </button>
-                {!prompt.isActive ? <button onClick={() => onSetActiveSystemPrompt(prompt.id)}>これを適用</button> : null}
+                {!prompt.isActive ? <button onClick={() => setActiveSystemPrompt(prompt.id)}>これを適用</button> : null}
                 <button
-                  onClick={() => onDeleteSystemPrompt(prompt.id)}
+                  onClick={() => deleteSystemPrompt(prompt.id)}
                   className="ghost danger"
                   disabled={systemPromptDeletingId === prompt.id}
                 >
@@ -224,7 +191,7 @@ export function PersonaDrawer({
             <label>タイトル</label>
             <input
               value={systemPromptForm.title}
-              onChange={(e) => onChangeSystemPromptForm('title', e.target.value)}
+              onChange={(e) => changeSystemPromptForm('title', e.target.value)}
               placeholder="例: フレンドリー / 簡潔回答"
             />
           </div>
@@ -232,7 +199,7 @@ export function PersonaDrawer({
             <label>本文</label>
             <textarea
               value={systemPromptForm.content}
-              onChange={(e) => onChangeSystemPromptForm('content', e.target.value)}
+              onChange={(e) => changeSystemPromptForm('content', e.target.value)}
               rows={4}
               placeholder={defaultSystemPrompt}
             />
@@ -242,17 +209,17 @@ export function PersonaDrawer({
               <input
                 type="checkbox"
                 checked={systemPromptForm.isActive}
-                onChange={(e) => onChangeSystemPromptForm('isActive', e.target.checked)}
+                onChange={(e) => changeSystemPromptForm('isActive', e.target.checked)}
               />
               <span>これを適用状態にする</span>
             </label>
           </div>
           {systemPromptError ? <p className="error-text">{systemPromptError}</p> : null}
           <div className="actions">
-            <button onClick={onSaveSystemPrompt} disabled={systemPromptSaving}>
+            <button onClick={saveSystemPrompt} disabled={systemPromptSaving}>
               {systemPromptSaving ? '保存中...' : '保存'}
             </button>
-            <button onClick={onResetSystemPromptForm} className="ghost">
+            <button onClick={resetSystemPromptForm} className="ghost">
               新規作成にリセット
             </button>
           </div>
