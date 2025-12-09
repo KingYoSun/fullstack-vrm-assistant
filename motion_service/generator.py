@@ -39,7 +39,8 @@ def generate_placeholder_tracks(
     tracks: dict[str, list[MotionKeyframe]] = {}
     root_positions: list[RootPosition] = []
     base_speed = rng.uniform(0.6, 1.1)
-    base_amp = rng.uniform(0.08, 0.18)
+    # さらに大きく動かす（約35〜60度）ため振幅を拡大
+    base_amp = rng.uniform(0.6, 1.05)
 
     for bone_index, bone in enumerate(DEFAULT_BONES):
         axis = "x" if "Arm" in bone else "y"
@@ -55,7 +56,7 @@ def generate_placeholder_tracks(
         tracks[bone] = keyframes
 
     for t in _time_stamps(duration_sec, fps):
-        sway = base_amp * 0.5 * math.sin(base_speed * 0.5 * t + rng.uniform(0, math.pi))
+        sway = base_amp * 0.4 * math.sin(base_speed * 0.5 * t + rng.uniform(0, math.pi))
         root_positions.append(RootPosition(t=t, x=sway, y=0.0, z=0.0))
 
     return tracks, root_positions

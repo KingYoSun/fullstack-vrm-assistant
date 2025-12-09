@@ -16,6 +16,7 @@ import type {
   TtsDiagMeta,
   WsState,
 } from '../types/app'
+import { clipToMotionJson, loadVrmaClip } from '../utils/vrmaLoader'
 
 type WsPayload = {
   type?: string
@@ -392,6 +393,7 @@ type AppActions = {
   triggerMotionPlayback: (motion: MotionDiagResult | null) => void
   setVrmaUrl: (url: string) => void
   playVrma: () => void
+  playVrmaAsMotion: () => Promise<void>
   setEmbeddingText: (value: string) => void
   setRagQuery: (value: string) => void
   setRagTopK: (value: string) => void
@@ -1067,6 +1069,8 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({ motionError: 'モーション指示を入力してください' })
       return
     }
+    // eslint-disable-next-line no-console
+    console.info('diagnostics: motion request start', { prompt })
     set({ motionLoading: true })
     try {
       const data = await requestJson<Record<string, unknown>>('/diagnostics/motion', {
@@ -1081,7 +1085,21 @@ export const useAppStore = create<AppStore>((set, get) => {
         motionPlayback: result,
         motionPlaybackKey: Date.now(),
       })
-      appendLog(`diagnostics: motion ok (job=${result.jobId || 'n/a'})`)
+      // eslint-disable-next-line no-console
+      console.info('diagnostics: motion normalized', {
+        jobId: result.jobId,
+        duration: result.durationSec,
+        fps: result.fps,
+        trackKeys: Object.keys(result.tracks || {}),
+        rootFrames: result.rootPosition?.length ?? 0,
+      })
+      appendLog(
+        `diagnostics: motion ok (job=${result.jobId || 'n/a'}) tracks=${
+          Object.keys(result.tracks || {}).length
+        } url=${result.url || result.outputPath}`,
+      )
+      // eslint-disable-next-line no-console
+      console.info('motion diagnostics response', { result, raw: data })
     } catch (err) {
       const message = parseError(err)
       set({ motionError: message })
@@ -1548,6 +1566,44 @@ export const useAppStore = create<AppStore>((set, get) => {
     set({ vrmaKey: Date.now(), lastMotionEvent: null })
     appendLog(`vrma: play ${url}`)
   }
+  const playVrmaAsMotion = async () => {
+    const url = get().vrmaUrl.trim()
+    if (!url) {
+      set({ motionError: 'VRMA の URL またはファイルを指定してください' })
+      return
+    }
+    set({ motionError: null })
+    try {
+      const clip = await loadVrmaClip(url)
+      const motion = clipToMotionJson(clip, { url })
+      const result: MotionDiagResult = {
+        jobId: motion.jobId,
+        url,
+        outputPath: url,
+        format: 'vrm-json',
+        durationSec: motion.durationSec,
+        fps: motion.fps,
+        tracks: motion.tracks,
+        rootPosition: motion.rootPosition,
+        provider: 'vrma-convert',
+        endpoint: 'vrma-to-json',
+        fallbackUsed: false,
+      }
+      set({
+        motionResult: result,
+        lastMotionEvent: result,
+        motionPlayback: result,
+        motionPlaybackKey: Date.now(),
+      })
+      appendLog(`vrma->motion: ${url} tracks=${Object.keys(motion.tracks).length}`)
+      // eslint-disable-next-line no-console
+      console.info('vrma->motion converted', { motion })
+    } catch (err) {
+      const message = parseError(err)
+      set({ motionError: message })
+      appendLog(`vrma->motion failed (${message})`)
+    }
+  }
   const setEmbeddingText = (value: string) => set({ embeddingText: value })
   const setRagQuery = (value: string) => set({ ragQuery: value })
   const setRagTopK = (value: string) => set({ ragTopK: value })
@@ -1682,6 +1738,9 @@ export const useAppStore = create<AppStore>((set, get) => {
     setTtsVoice,
     setMotionPrompt,
     triggerMotionPlayback,
+    setVrmaUrl,
+    playVrma,
+    playVrmaAsMotion,
     setEmbeddingText,
     setRagQuery,
     setRagTopK,

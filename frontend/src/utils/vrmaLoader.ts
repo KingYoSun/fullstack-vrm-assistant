@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { AnimationClip, KeyframeTrack } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { VRM } from '@pixiv/three-vrm'
+import type { MotionKeyframe, MotionRootPosition } from '../types/app'
 
 const BONES_NAME_LIST: Record<string, string[]> = {
   head: ['root', 'head', 'J_Bip_C_Head', 'Normalized_J_Bip_C_Head'],
@@ -43,7 +44,7 @@ const remapTrackNames = (clip: AnimationClip) => {
   })
 }
 
-export async function loadVrmaClip(url: string, _vrm: VRM): Promise<AnimationClip> {
+export async function loadVrmaClip(url: string, _vrm?: VRM): Promise<AnimationClip> {
   const loader = new GLTFLoader()
   const gltf = await loader.loadAsync(url)
   const clip = gltf.animations?.[0]
@@ -52,6 +53,12 @@ export async function loadVrmaClip(url: string, _vrm: VRM): Promise<AnimationCli
   }
   // Track を HumanBone 名に揃える
   remapTrackNames(clip)
+  // eslint-disable-next-line no-console
+  console.info('vrma loader: clip loaded', {
+    url,
+    tracks: clip.tracks.map((t) => t.name),
+    duration: clip.duration,
+  })
   return clip
 }
 
@@ -63,7 +70,11 @@ const resolveHumanBone = (base: string): string | null => {
 
 export type RetargetResult = { clip: AnimationClip; missing: string[] }
 
-export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): RetargetResult => {
+type RetargetOptions = {
+  useNormalized?: boolean
+}
+
+export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM, options: RetargetOptions = {}): RetargetResult => {
   const humanoid = vrm.humanoid
   if (!humanoid) return { clip, missing: [] }
   const filtered: KeyframeTrack[] = []
@@ -75,7 +86,9 @@ export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): RetargetResult 
     const prop = match[2]
     const normalizedBase = base.replace(/^normalized_/i, '')
     const humanBone = resolveHumanBone(normalizedBase) ?? normalizedBase
-    const node = humanoid.getRawBoneNode(humanBone as never)
+    const node = options.useNormalized
+      ? humanoid.getNormalizedBoneNode(humanBone as never)
+      : humanoid.getRawBoneNode(humanBone as never)
     if (!node) {
       missing.push(`${humanBone}.${prop}`)
       return
@@ -84,8 +97,18 @@ export const retargetVrmaClip = (clip: AnimationClip, vrm: VRM): RetargetResult 
     filtered.push(track)
   })
   const retargeted = new THREE.AnimationClip(clip.name || 'vrma', clip.duration, filtered)
+  if (missing.length) {
+    // eslint-disable-next-line no-console
+    console.debug('retarget: missing tracks', missing)
+  }
   return { clip: retargeted, missing }
 }
+
+const tmpQuat = new THREE.Quaternion()
+const tmpAxis = new THREE.Vector3()
+const clamp = (v: number) => Math.min(1, Math.max(-1, v))
+const ROTATION_BOOST_FACTOR = 4
+const ROTATION_BOOST_THRESHOLD_DEG = 8
 
 export const motionJsonToClip = (motion: {
   jobId?: string
@@ -122,6 +145,12 @@ export const motionJsonToClip = (motion: {
       normalized_rightleg: 'rightLowerLeg',
       normalized_leftupleg: 'leftUpperLeg',
       normalized_rightupleg: 'rightUpperLeg',
+      leftupperarm: 'leftUpperArm',
+      rightupperarm: 'rightUpperArm',
+      leftlowerarm: 'leftLowerArm',
+      rightlowerarm: 'rightLowerArm',
+      leftupperleg: 'leftUpperLeg',
+      rightupperleg: 'rightUpperLeg',
     }
     return map[lower] ?? name
   }
@@ -130,15 +159,39 @@ export const motionJsonToClip = (motion: {
     if (!Array.isArray(frames) || frames.length === 0) return
     const targetBone = normalizeName(bone)
     const times = toTimes(frames)
+
+    // 1st pass: measure magnitude
+    let maxDeg = 0
+    frames.forEach((frame) => {
+      tmpQuat.set(frame.x ?? 0, frame.y ?? 0, frame.z ?? 0, frame.w ?? 1).normalize()
+      const angle = 2 * Math.acos(clamp(tmpQuat.w))
+      const deg = (angle * 180) / Math.PI
+      if (deg > maxDeg) maxDeg = deg
+    })
+    const scale = maxDeg < ROTATION_BOOST_THRESHOLD_DEG ? ROTATION_BOOST_FACTOR : 1
+
     const values = new Float32Array(frames.length * 4)
     frames.forEach((frame, idx) => {
+      tmpQuat.set(frame.x ?? 0, frame.y ?? 0, frame.z ?? 0, frame.w ?? 1).normalize()
+      if (scale !== 1) {
+        const angle = 2 * Math.acos(clamp(tmpQuat.w))
+        const sinHalf = Math.sqrt(Math.max(0, 1 - tmpQuat.w * tmpQuat.w))
+        if (sinHalf < 1e-6) {
+          tmpAxis.set(0, 1, 0)
+        } else {
+          tmpAxis.set(tmpQuat.x / sinHalf, tmpQuat.y / sinHalf, tmpQuat.z / sinHalf)
+        }
+        tmpQuat.setFromAxisAngle(tmpAxis, angle * scale)
+      }
       const offset = idx * 4
-      values[offset] = frame.x ?? 0
-      values[offset + 1] = frame.y ?? 0
-      values[offset + 2] = frame.z ?? 0
-      values[offset + 3] = frame.w ?? 1
+      values[offset] = tmpQuat.x
+      values[offset + 1] = tmpQuat.y
+      values[offset + 2] = tmpQuat.z
+      values[offset + 3] = tmpQuat.w
     })
     tracks.push(new THREE.QuaternionKeyframeTrack(`${targetBone}.quaternion`, times, values))
+    // eslint-disable-next-line no-console
+    console.info('motion: track stats', { track: targetBone, maxDeg: Number(maxDeg.toFixed(2)), scaleApplied: scale })
   })
 
   if (motion.rootPosition?.length) {
@@ -153,5 +206,87 @@ export const motionJsonToClip = (motion: {
     tracks.push(new THREE.VectorKeyframeTrack('hips.position', times, values))
   }
 
-  return new THREE.AnimationClip(`motion-${motion.jobId || Date.now()}`, motion.durationSec ?? -1, tracks)
+  const clip = new THREE.AnimationClip(`motion-${motion.jobId || Date.now()}`, motion.durationSec ?? -1, tracks)
+  // eslint-disable-next-line no-console
+  console.info('motion: clip built from json', {
+    jobId: motion.jobId,
+    duration: motion.durationSec,
+    trackNames: clip.tracks.map((t) => t.name),
+    rootKeys: motion.rootPosition?.length ?? 0,
+  })
+  return clip
+}
+
+const estimateFps = (times: ArrayLike<number>): number => {
+  if (!times || times.length < 2) return 30
+  const deltas: number[] = []
+  for (let i = 1; i < times.length; i += 1) {
+    const dt = times[i] - times[i - 1]
+    if (dt > 1e-4) deltas.push(dt)
+  }
+  if (!deltas.length) return 30
+  deltas.sort((a, b) => a - b)
+  const mid = Math.floor(deltas.length / 2)
+  const median = deltas.length % 2 ? deltas[mid] : (deltas[mid - 1] + deltas[mid]) / 2
+  return Math.round(1 / median)
+}
+
+export const clipToMotionJson = (
+  clip: AnimationClip,
+  options: { jobId?: string; url?: string } = {},
+): {
+  jobId: string
+  durationSec: number
+  fps: number
+  tracks: Record<string, MotionKeyframe[]>
+  rootPosition?: MotionRootPosition[]
+  url?: string
+} => {
+  const tracks: Record<string, MotionKeyframe[]> = {}
+  let rootPosition: MotionRootPosition[] | undefined
+  let sampleTimes: ArrayLike<number> | null = null
+
+  clip.tracks.forEach((track) => {
+    const match = track.name.match(/^(.+)\.(position|quaternion)$/)
+    if (!match) return
+    const base = match[1]
+    const prop = match[2]
+    const humanBone = resolveHumanBone(base.replace(/^normalized_/i, '')) ?? base
+    const times = track.times as ArrayLike<number>
+    if (!sampleTimes || times.length > sampleTimes.length) sampleTimes = times
+
+    if (prop === 'quaternion') {
+      const values = track.values as ArrayLike<number>
+      const frames: MotionKeyframe[] = []
+      for (let i = 0; i < times.length; i += 1) {
+        const offset = i * 4
+        frames.push({
+          t: times[i],
+          x: values[offset],
+          y: values[offset + 1],
+          z: values[offset + 2],
+          w: values[offset + 3],
+        })
+      }
+      tracks[humanBone] = frames
+    } else if (prop === 'position' && humanBone.toLowerCase().includes('hip')) {
+      const values = track.values as ArrayLike<number>
+      const frames: MotionRootPosition[] = []
+      for (let i = 0; i < times.length; i += 1) {
+        const offset = i * 3
+        frames.push({
+          t: times[i],
+          x: values[offset],
+          y: values[offset + 1],
+          z: values[offset + 2],
+        })
+      }
+      rootPosition = frames
+    }
+  })
+
+  const fps = sampleTimes ? estimateFps(sampleTimes) : 30
+  const durationSec = clip.duration > 0 ? clip.duration : sampleTimes ? sampleTimes[sampleTimes.length - 1] : 0
+  const jobId = options.jobId ?? `vrma-to-json-${Date.now()}`
+  return { jobId, durationSec, fps, tracks, rootPosition, url: options.url }
 }

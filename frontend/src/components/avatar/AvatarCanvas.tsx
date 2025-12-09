@@ -219,8 +219,9 @@ function VrmModel({ url, mouthOpen, onLoaded, onVrmLoaded }: VrmModelProps) {
   const vrm = useMemo(() => {
     const loaded = gltf.userData.vrm as VRM | undefined
     if (!loaded) return null
+    // normalized ボーンにアニメを乗せ、毎フレーム raw にコピーさせる
     if (loaded.humanoid) {
-      loaded.humanoid.autoUpdateHumanBones = false
+      loaded.humanoid.autoUpdateHumanBones = true
     }
     VRMUtils.combineSkeletons(loaded.scene)
     loaded.scene.traverse((obj) => {
@@ -310,6 +311,7 @@ type MotionPlayerProps = { vrm: VRM | null }
 function MotionPlayer({ vrm }: MotionPlayerProps) {
   const mixerRef = useRef<AnimationMixer | null>(null)
   const lastActionRef = useRef<AnimationAction | null>(null)
+  const lastVrmaKeyRef = useRef<number>(0)
   const motionPlayback = useAppStore((s) => s.motionPlayback)
   const motionPlaybackKey = useAppStore((s) => s.motionPlaybackKey)
   const vrmaUrl = useAppStore((s) => s.vrmaUrl)
@@ -331,7 +333,30 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
   }, -2)
 
   useEffect(() => {
-    if (!vrm || !motionPlayback || !mixerRef.current) return
+    if (!motionPlayback) {
+      // eslint-disable-next-line no-console
+      console.info('motion: skipped (no motionPlayback)')
+      return
+    }
+    if (!vrm) {
+      // eslint-disable-next-line no-console
+      console.warn('motion: skipped (VRM not ready)', motionPlayback.jobId)
+      return
+    }
+    if (!mixerRef.current) {
+      // eslint-disable-next-line no-console
+      console.warn('motion: skipped (mixer not ready)', motionPlayback.jobId)
+      return
+    }
+    // eslint-disable-next-line no-console
+    console.info('motion: effect triggered', {
+      jobId: motionPlayback.jobId,
+      trackKeys: Object.keys(motionPlayback.tracks || {}),
+      rootKeys: motionPlayback.rootPosition?.length ?? 0,
+    })
+    appendLog(
+      `motion: retarget start job=${motionPlayback.jobId || 'n/a'} srcTracks=${Object.keys(motionPlayback.tracks || {}).length}`,
+    )
     const clip = motionJsonToClip({
       jobId: motionPlayback.jobId,
       durationSec: motionPlayback.durationSec,
@@ -339,17 +364,27 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
       rootPosition: motionPlayback.rootPosition,
     })
     const originalNames = clip.tracks.map((t) => t.name)
-    const { clip: retargeted, missing } = retargetVrmaClip(clip, vrm)
+    const { clip: retargeted, missing } = retargetVrmaClip(clip, vrm, { useNormalized: true })
     if (!retargeted || retargeted.tracks.length === 0) {
       appendLog('motion: no applicable tracks for VRM (retargeted 0)')
       // eslint-disable-next-line no-console
-      console.warn('motion retarget: no tracks bound', { originalNames, missing })
+      console.warn('motion retarget: no tracks bound', { originalNames, missing, motionPlayback })
       return
     }
     if (missing.length) {
       // eslint-disable-next-line no-console
-      console.warn(`motion retarget: missing ${missing.length}`, missing.slice(0, 12))
+      console.warn(`motion retarget: missing ${missing.length}`, {
+        missing: missing.slice(0, 12),
+        totalMissing: missing.length,
+        originalNames,
+      })
     }
+    // eslint-disable-next-line no-console
+    console.info('motion retarget mapping', {
+      originalNames,
+      retargetedNames: retargeted.tracks.map((t) => t.name),
+      duration: retargeted.duration,
+    })
     const mixer = mixerRef.current
     if (lastActionRef.current) {
       lastActionRef.current.stop()
@@ -366,18 +401,22 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
         .slice(0, 6)
         .join(',')}${trackNames.length > 6 ? '…' : ''}`,
     )
+    // eslint-disable-next-line no-console
+    console.info('motion retargeted tracks', trackNames)
   }, [motionPlaybackKey, motionPlayback, vrm, appendLog])
 
   useEffect(() => {
     let aborted = false
     if (!vrm || !vrmaUrl || !mixerRef.current) return
+    if (vrmaKey === lastVrmaKeyRef.current) return
+    lastVrmaKeyRef.current = vrmaKey
     loadVrmaClip(vrmaUrl, vrm)
       .then((clip) => {
         if (aborted || !clip || !mixerRef.current) return
-        const { clip: retargeted, missing } = retargetVrmaClip(clip, vrm)
+        const { clip: retargeted, missing } = retargetVrmaClip(clip, vrm, { useNormalized: true })
         if (missing.length) {
           // eslint-disable-next-line no-console
-          console.warn(`vrma retarget: missing ${missing.length}`, missing.slice(0, 12))
+          console.warn(`vrma retarget: missing ${missing.length}`, { missing: missing.slice(0, 12) })
         }
         if (lastActionRef.current) {
           lastActionRef.current.stop()
@@ -389,6 +428,8 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
         action.play()
         lastActionRef.current = action
         appendLog(`vrma: play ${vrmaUrl} (${retargeted.tracks.length} tracks)`)
+        // eslint-disable-next-line no-console
+        console.info('vrma retargeted tracks', retargeted.tracks.map((t) => t.name))
       })
       .catch((err) => {
         if (!aborted) {

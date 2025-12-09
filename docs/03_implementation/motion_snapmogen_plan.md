@@ -20,6 +20,11 @@
 - frontend Diagnostics Drawer に Motion カードを追加し、WS `assistant_motion` を受信して表示（再生ロジックは未着手）。
 - 次ステップ: SnapMoGen 推論コードの呼び出しと VRM アバター再生処理、motion_prompt 抽出/同期再生の導線を実装する。
 
+## 調査メモ（2025年12月09日）
+- フロントの再生経路は normalized ボーンでのリターゲット＆AnimationMixer 再生が動作。VRMA ファイルを「VRMA → Motion」で JSON に変換し、Motion 経路経由でも正しく再生できることを確認。
+- motion_service のプレースホルダー JSON（左右腕・胴体など 7 トラック）は、最大でも ~10 度程度の回転で見た目がほぼ T ポーズのまま。生成側で振幅を大きくしても改善せず、出力内容が根本的に不足している可能性が高い。
+- 現状、Motion 経路の実装・リターゲットは正常と判断。改善は motion_service（SnapMoGen 出力）でのスケール/生成ロジックの見直しが必要。
+
 ## 前提・非スコープ
 - 環境: DGX Spark (CUDA 13.0, SM 12.1)、Docker Compose GPU プロファイル利用。Node 20系、Python 3.12 系。
 - SnapMoGen README 推奨: Python 3.8.20、`prepare/download_models.sh` でチェックポイント取得。モデル格納はボリューム `/checkpoint_dir` で永続化する。

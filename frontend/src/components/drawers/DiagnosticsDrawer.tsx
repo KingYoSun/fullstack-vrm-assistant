@@ -50,6 +50,7 @@ export function DiagnosticsDrawer() {
   const runMotionCheck = useAppStore((s) => s.runMotionCheck)
   const setVrmaUrl = useAppStore((s) => s.setVrmaUrl)
   const playVrma = useAppStore((s) => s.playVrma)
+  const playVrmaAsMotion = useAppStore((s) => s.playVrmaAsMotion)
   const setEmbeddingText = useAppStore((s) => s.setEmbeddingText)
   const runEmbeddingCheck = useAppStore((s) => s.runEmbeddingCheck)
   const setRagQuery = useAppStore((s) => s.setRagQuery)
@@ -242,12 +243,15 @@ export function DiagnosticsDrawer() {
                 <p className="mono small preview-text">url: {lastMotionEvent.url || lastMotionEvent.outputPath}</p>
               </div>
             ) : null}
-            <div className="diag-subsection">
+              <div className="diag-subsection">
               <label className="inline-label">VRMA URL またはファイル</label>
               <input
                 value={vrmaUrl}
                 onChange={(e) => setVrmaUrl(e.target.value)}
                 placeholder="/data/animations/sample.vrma"
+                onBlur={() => {
+                  console.info('vrma input blur', vrmaUrl)
+                }}
               />
               <input
                 type="file"
@@ -257,6 +261,7 @@ export function DiagnosticsDrawer() {
                   if (file) {
                     const url = URL.createObjectURL(file)
                     setVrmaUrl(url)
+                    console.info('vrma file selected', { name: file.name, size: file.size, url })
                   }
                 }}
               />
@@ -264,7 +269,11 @@ export function DiagnosticsDrawer() {
                 <button onClick={playVrma} disabled={!vrmaUrl}>
                   VRMA 再生
                 </button>
+                <button onClick={playVrmaAsMotion} disabled={!vrmaUrl}>
+                  VRMA → Motion
+                </button>
               </div>
+              <p className="hint mono small">VRMA を JSON モーションに変換して Motion 経路の挙動を確認します。</p>
             </div>
           </div>
         </div>
