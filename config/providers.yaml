@@ -39,3 +39,9 @@ embedding:
   model: ${EMBEDDING_MODEL}
   batch_size: ${EMBEDDING_BATCH_SIZE}
   timeout_sec: ${EMBEDDING_TIMEOUT_SEC}
+
+motion:
+  provider: ${MOTION_PROVIDER}
+  endpoint: ${MOTION_ENDPOINT}
+  timeout_sec: ${MOTION_TIMEOUT_SEC}
+  output_format: ${MOTION_OUTPUT_FORMAT}

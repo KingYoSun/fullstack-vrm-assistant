@@ -5,10 +5,11 @@ from typing import Any
 import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.api import dependencies
-from app.api.routes import characters, diagnostics, system_prompts, text_chat, websocket
+from app.api.routes import characters, diagnostics, motion, system_prompts, text_chat, websocket
 from app.core.logging import configure_logging, generate_request_id, reset_request_id, set_request_id
 from app.core.container import AppContainer
 from app.core.providers import load_providers_config
@@ -39,10 +40,13 @@ def _collect_provider_warnings(status: dict[str, dict[str, Any]]) -> list[str]:
 async def lifespan(app: FastAPI):
     providers_config = load_providers_config(settings.providers_config_path)
     http_client = httpx.AsyncClient(timeout=settings.request_timeout_sec)
+    settings.data_root.mkdir(parents=True, exist_ok=True)
     providers = ProviderRegistry(
         http_client=http_client,
         providers_config=providers_config,
         llm_api_key=settings.llm_api_key,
+        data_root=settings.data_root,
+        data_mount_path=settings.data_mount_path,
     )
     rag_service = RagService(
         rag_config=providers_config.rag,
@@ -70,6 +74,7 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+app.mount("/data", StaticFiles(directory=settings.data_root, check_dir=False), name="data")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
@@ -79,6 +84,7 @@ app.add_middleware(
 )
 app.include_router(text_chat.router, prefix="/api/v1")
 app.include_router(diagnostics.router, prefix="/api/v1")
+app.include_router(motion.router, prefix="/api/v1")
 app.include_router(characters.router, prefix="/api/v1")
 app.include_router(system_prompts.router, prefix="/api/v1")
 app.include_router(websocket.router)

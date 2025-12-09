@@ -13,6 +13,13 @@
 - frontend: motion キー列 JSON の取得・再生ロジック（三身体ボーンのみ適用）、UI トリガ追加。
 - テスト: motion_service の最小ユニットテスト（変換/入出力）、backend API/WS のモック統合テスト、手動検証手順の追記。
 
+## 最新進捗（2025年12月09日）
+- motion_service を FastAPI スタブとして追加し、`/v1/motion/generate` がプレースホルダーの VRM JSON を `/data/animations` に保存。Dockerfile を新設し compose に GPU プロファイル付き motion サービスを追加。
+- `.env.default` / `config/providers.yaml` に MOTION_* と DATA_* を追加し、backend StaticFiles で `/data` を配信。
+- backend に MotionProviderConfig/Client、`POST /api/v1/motion/generate`、Diagnostics `/diagnostics/motion`、WS `assistant_motion` イベントを実装。
+- frontend Diagnostics Drawer に Motion カードを追加し、WS `assistant_motion` を受信して表示（再生ロジックは未着手）。
+- 次ステップ: SnapMoGen 推論コードの呼び出しと VRM アバター再生処理、motion_prompt 抽出/同期再生の導線を実装する。
+
 ## 前提・非スコープ
 - 環境: DGX Spark (CUDA 13.0, SM 12.1)、Docker Compose GPU プロファイル利用。Node 20系、Python 3.12 系。
 - SnapMoGen README 推奨: Python 3.8.20、`prepare/download_models.sh` でチェックポイント取得。モデル格納はボリューム `/checkpoint_dir` で永続化する。

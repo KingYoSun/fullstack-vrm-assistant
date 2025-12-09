@@ -18,6 +18,11 @@ export function DiagnosticsDrawer() {
   const ttsAudioUrl = useAppStore((s) => s.ttsAudioUrl)
   const ttsError = useAppStore((s) => s.ttsError)
   const ttsLoading = useAppStore((s) => s.ttsLoading)
+  const motionPrompt = useAppStore((s) => s.motionPrompt)
+  const motionResult = useAppStore((s) => s.motionResult)
+  const motionError = useAppStore((s) => s.motionError)
+  const motionLoading = useAppStore((s) => s.motionLoading)
+  const lastMotionEvent = useAppStore((s) => s.lastMotionEvent)
   const embeddingText = useAppStore((s) => s.embeddingText)
   const embeddingResult = useAppStore((s) => s.embeddingResult)
   const embeddingError = useAppStore((s) => s.embeddingError)
@@ -40,6 +45,8 @@ export function DiagnosticsDrawer() {
   const setTtsText = useAppStore((s) => s.setTtsText)
   const setTtsVoice = useAppStore((s) => s.setTtsVoice)
   const runTtsCheck = useAppStore((s) => s.runTtsCheck)
+  const setMotionPrompt = useAppStore((s) => s.setMotionPrompt)
+  const runMotionCheck = useAppStore((s) => s.runMotionCheck)
   const setEmbeddingText = useAppStore((s) => s.setEmbeddingText)
   const runEmbeddingCheck = useAppStore((s) => s.runEmbeddingCheck)
   const setRagQuery = useAppStore((s) => s.setRagQuery)
@@ -176,6 +183,62 @@ export function DiagnosticsDrawer() {
             ) : (
               <p className="hint">音声合成のみを実行し、再生とフォーマットを確認。</p>
             )}
+          </div>
+        </div>
+
+        <div className="diag-card">
+          <div className="diag-head">
+            <div>
+              <div className="eyebrow">Motion</div>
+              <h4>モーション生成</h4>
+            </div>
+            <div className="pill pill-soft">
+              {motionResult ? `${Object.keys(motionResult.tracks).length} tracks` : 'prompt → track'}
+            </div>
+          </div>
+          <div className="diag-body">
+            <label className="inline-label">モーション指示</label>
+            <textarea
+              value={motionPrompt}
+              onChange={(e) => setMotionPrompt(e.target.value)}
+              rows={2}
+              placeholder="例: 3秒で手を振る"
+            />
+            <div className="diag-actions">
+              <button onClick={runMotionCheck} disabled={motionLoading}>
+                {motionLoading ? 'Running...' : 'Motion 実行'}
+              </button>
+              {motionResult?.fallbackUsed || lastMotionEvent?.fallbackUsed ? (
+                <span className="pill pill-hot">fallback</span>
+              ) : null}
+              {motionResult ? <span className="pill pill-soft">{motionResult.fps} fps</span> : null}
+            </div>
+            {motionError ? <p className="error-text">{motionError}</p> : null}
+            {motionResult ? (
+              <div className="diag-result">
+                <div className="diag-meta mono small">
+                  <span>{motionResult.provider ?? 'motion'}</span>
+                  <span>{motionResult.format}</span>
+                  <span>{motionResult.durationSec.toFixed(1)}s</span>
+                </div>
+                <p className="mono small preview-text">url: {motionResult.url || motionResult.outputPath}</p>
+                <p className="mono small">
+                  tracks: {Object.keys(motionResult.tracks).length}
+                  {motionResult.rootPosition ? ` / root ${motionResult.rootPosition.length}` : ''}
+                </p>
+              </div>
+            ) : (
+              <p className="hint">SnapMoGen スタブの疎通確認。JSON キー列が返るかを検証。</p>
+            )}
+            {lastMotionEvent ? (
+              <div className="diag-result">
+                <div className="diag-meta mono small">
+                  <span>WS</span>
+                  <span>{lastMotionEvent.jobId || 'latest'}</span>
+                </div>
+                <p className="mono small preview-text">url: {lastMotionEvent.url || lastMotionEvent.outputPath}</p>
+              </div>
+            ) : null}
           </div>
         </div>
 

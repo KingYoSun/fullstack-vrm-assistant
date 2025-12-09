@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_db_session, get_provider_registry, get_rag_service
+from app.api.dependencies import (
+    get_app_settings,
+    get_db_session,
+    get_provider_registry,
+    get_rag_service,
+)
+from app.core.settings import AppSettings
 from app.db.models import ConversationLog
 from app.providers.registry import ProviderRegistry
 from app.repositories.characters import CharacterRepository
@@ -25,6 +31,7 @@ from app.schemas.diagnostics import (
     TtsDiagRequest,
     TtsDiagResponse,
 )
+from app.schemas.motion import MotionGenerateRequest, MotionGenerateResponse
 from app.services.rag_service import RagService
 from app.services.prompt_builder import (
     MAX_ASSISTANT_CHARACTERS,
@@ -119,6 +126,16 @@ async def _collect_tts_chunks(stream: AsyncIterable[bytes]) -> list[bytes]:
     return chunks
 
 
+def _resolve_motion_url(result: MotionGenerateResponse, data_mount_path: str) -> str:
+    if result.url:
+        return result.url
+    if "/data/" in result.output_path:
+        suffix = result.output_path.split("/data/", 1)[1]
+        base = data_mount_path.rstrip("/") or "/data"
+        return f"{base}/{suffix}"
+    return result.output_path
+
+
 @router.post("/diagnostics/tts", response_model=TtsDiagResponse)
 async def diagnose_tts(
     body: TtsDiagRequest,
@@ -157,6 +174,28 @@ async def diagnose_tts(
         sample_rate=providers.tts.sample_rate,
         fallback_used=fallback_used,
     )
+
+
+@router.post("/diagnostics/motion", response_model=MotionGenerateResponse)
+async def diagnose_motion(
+    body: MotionGenerateRequest,
+    providers: ProviderRegistry = Depends(get_provider_registry),
+    settings: AppSettings = Depends(get_app_settings),
+) -> MotionGenerateResponse:
+    prompt = body.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is empty.")
+
+    request = body.model_copy(update={"prompt": prompt})
+    fallback_before = providers.motion.fallback_count
+    try:
+        result = await providers.motion.generate(request)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"motion failed: {exc}") from exc
+    resolved_url = _resolve_motion_url(result, settings.data_mount_path)
+    fallback_used = providers.motion.fallback_count > fallback_before
+    combined_fallback = fallback_used or result.fallback_used
+    return result.model_copy(update={"url": resolved_url, "fallback_used": combined_fallback})
 
 
 @router.post("/diagnostics/embedding", response_model=EmbeddingDiagResponse)

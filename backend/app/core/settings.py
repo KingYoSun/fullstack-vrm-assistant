@@ -15,6 +15,8 @@ class AppSettings(BaseSettings):
         default="postgresql+asyncpg://vrm:vrm_password@localhost:5432/vrm",
         env="DATABASE_URL",
     )
+    data_root: Path = Field(default=Path("/data"), env="DATA_ROOT")
+    data_mount_path: str = Field(default="/data", env="DATA_MOUNT_PATH")
     rag_index_path: Path = Field(
         default=Path("/data/faiss/index.bin"), env="RAG_INDEX_PATH"
     )

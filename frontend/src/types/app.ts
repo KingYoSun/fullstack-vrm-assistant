@@ -12,6 +12,22 @@ export type ChatTurn = {
 
 export type LatencyMap = { stt?: number; llm?: number; tts?: number }
 
+export type MotionKeyframe = { t: number; x: number; y: number; z: number; w: number }
+export type MotionRootPosition = { t: number; x: number; y: number; z: number }
+export type MotionDiagResult = {
+  jobId: string
+  url: string
+  outputPath: string
+  format: string
+  durationSec: number
+  fps: number
+  tracks: Record<string, MotionKeyframe[]>
+  rootPosition?: MotionRootPosition[]
+  provider?: string
+  endpoint?: string
+  fallbackUsed?: boolean
+}
+
 export type SttDiagResult = {
   text: string
   byteLength: number

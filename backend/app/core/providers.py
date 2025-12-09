@@ -54,12 +54,20 @@ class EmbeddingConfig(BaseModel):
     timeout_sec: int = Field(default=30, ge=1)
 
 
+class MotionProviderConfig(BaseModel):
+    provider: str
+    endpoint: str
+    timeout_sec: int = Field(default=30, ge=1)
+    output_format: str = "vrm-json"
+
+
 class ProvidersConfig(BaseModel):
     llm: LLMProviderConfig
     stt: STTProviderConfig
     tts: TTSProviderConfig
     rag: RagConfig
     embedding: EmbeddingConfig
+    motion: MotionProviderConfig
 
     model_config = {"extra": "ignore"}
 

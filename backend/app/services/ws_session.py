@@ -19,6 +19,7 @@ from app.services.prompt_builder import (
     clamp_response_length,
 )
 from app.services.rag_service import RagService
+from app.schemas.motion import MotionGenerateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -347,6 +348,8 @@ class WebSocketSession:
             },
         )
 
+        _ = asyncio.create_task(self._dispatch_motion(turn_id=turn_id, assistant_text=assistant_text))
+
         try:
             await self._stream_tts(
                 turn_id=turn_id,
@@ -367,6 +370,39 @@ class WebSocketSession:
             await self._send_error("tts_failed", recoverable=False)
         finally:
             self._state = "listening"
+
+    async def _dispatch_motion(self, turn_id: str, assistant_text: str) -> None:
+        prompt = assistant_text.strip()
+        if not prompt:
+            return
+        request = MotionGenerateRequest(prompt=prompt, duration_sec=4.0, fps=24)
+        try:
+            result = await self.providers.motion.generate(request)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Motion generation failed for session",
+                exc_info=exc,
+                extra={"session_id": self.session_id, "turn_id": turn_id, "event": "motion_error"},
+            )
+            return
+
+        payload = result.model_dump(by_alias=True)
+        payload.update(
+            {
+                "type": "assistant_motion",
+                "session_id": self.session_id,
+                "turn_id": turn_id,
+                "url": result.url or result.output_path,
+            }
+        )
+        try:
+            await self.websocket.send_json(payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to send motion event",
+                exc_info=exc,
+                extra={"session_id": self.session_id, "turn_id": turn_id, "event": "motion_send_error"},
+            )
 
     async def _stream_tts(
         self, turn_id: str, text: str, llm_latency_ms: float, fallback: bool

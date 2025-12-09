@@ -7,6 +7,9 @@ import type {
   LatencyMap,
   LlmDiagResult,
   LogEntry,
+  MotionDiagResult,
+  MotionKeyframe,
+  MotionRootPosition,
   RagDiagResult,
   SttDiagResult,
   SystemPrompt,
@@ -24,6 +27,17 @@ type WsPayload = {
   sample_rate?: number
   channels?: number
   mouth_open?: number
+  job_id?: string
+  url?: string
+  output_path?: string
+  format?: string
+  duration_sec?: number
+  fps?: number
+  tracks?: Record<string, MotionKeyframe[]>
+  rootPosition?: MotionRootPosition[]
+  fallback?: boolean
+  provider?: string
+  endpoint?: string
   recoverable?: boolean
   message?: string
 }
@@ -187,6 +201,91 @@ const audioFromBase64 = (base64: string, mimeType: string) => {
   return new Blob([buffer], { type: mimeType })
 }
 
+const toNumber = (value: unknown, fallback = 0) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return fallback
+}
+
+const normalizeMotionKeyframe = (value: unknown): MotionKeyframe | null => {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Record<string, unknown>
+  return {
+    t: toNumber(item.t, 0),
+    x: toNumber(item.x, 0),
+    y: toNumber(item.y, 0),
+    z: toNumber(item.z, 0),
+    w: toNumber(item.w, 1),
+  }
+}
+
+const normalizeMotionTracks = (value: unknown): Record<string, MotionKeyframe[]> => {
+  const tracks: Record<string, MotionKeyframe[]> = {}
+  if (!value || typeof value !== 'object') return tracks
+  Object.entries(value as Record<string, unknown>).forEach(([bone, raw]) => {
+    if (!Array.isArray(raw)) return
+    const frames = raw
+      .map((entry) => normalizeMotionKeyframe(entry))
+      .filter((kf): kf is MotionKeyframe => Boolean(kf))
+    tracks[bone] = frames
+  })
+  return tracks
+}
+
+const normalizeRootPositions = (value: unknown): MotionRootPosition[] => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const item = entry as Record<string, unknown>
+      return {
+        t: toNumber(item.t, 0),
+        x: toNumber(item.x, 0),
+        y: toNumber(item.y, 0),
+        z: toNumber(item.z, 0),
+      }
+    })
+    .filter((pos): pos is MotionRootPosition => Boolean(pos))
+}
+
+const normalizeFallbackFlag = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const lowered = value.toLowerCase()
+    if (lowered === 'true') return true
+    if (lowered === 'false') return false
+  }
+  return false
+}
+
+const normalizeMotionPayload = (data: Record<string, unknown>): MotionDiagResult => {
+  const rootRaw = (data as { rootPosition?: unknown; root_position?: unknown }).rootPosition ?? (data as { root_position?: unknown }).root_position
+  const url = typeof data.url === 'string' ? data.url : typeof data.output_path === 'string' ? data.output_path : ''
+  const outputPath = typeof data.output_path === 'string' ? data.output_path : url
+  const rootPosition = normalizeRootPositions(rootRaw)
+  return {
+    jobId:
+      typeof data.job_id === 'string'
+        ? data.job_id
+        : typeof (data as { jobId?: string }).jobId === 'string'
+          ? (data as { jobId?: string }).jobId!
+          : 'unknown',
+    url,
+    outputPath,
+    format: typeof data.format === 'string' ? data.format : 'vrm-json',
+    durationSec: toNumber((data as { duration_sec?: unknown; duration?: unknown }).duration_sec ?? (data as { duration?: unknown }).duration, 0),
+    fps: toNumber((data as { fps?: unknown }).fps, 0),
+    tracks: normalizeMotionTracks((data as { tracks?: unknown }).tracks),
+    rootPosition: rootPosition.length ? rootPosition : undefined,
+    provider: typeof data.provider === 'string' ? data.provider : undefined,
+    endpoint: typeof data.endpoint === 'string' ? data.endpoint : undefined,
+    fallbackUsed: normalizeFallbackFlag((data as { fallback_used?: unknown; fallback?: unknown }).fallback_used ?? (data as { fallback?: unknown }).fallback),
+  }
+}
+
 type AppState = {
   baseUrl: string
   apiBaseUrl: string
@@ -229,6 +328,11 @@ type AppState = {
   ttsAudioUrl: string | null
   ttsError: string | null
   ttsLoading: boolean
+  motionPrompt: string
+  motionResult: MotionDiagResult | null
+  motionError: string | null
+  motionLoading: boolean
+  lastMotionEvent: MotionDiagResult | null
   embeddingText: string
   embeddingResult: EmbeddingDiagResult | null
   embeddingError: string | null
@@ -280,6 +384,7 @@ type AppActions = {
   setLlmContext: (value: string) => void
   setTtsText: (value: string) => void
   setTtsVoice: (value: string) => void
+  setMotionPrompt: (value: string) => void
   setEmbeddingText: (value: string) => void
   setRagQuery: (value: string) => void
   setRagTopK: (value: string) => void
@@ -299,6 +404,7 @@ type AppActions = {
   runSttCheck: () => Promise<void>
   runLlmCheck: () => Promise<void>
   runTtsCheck: () => Promise<void>
+  runMotionCheck: () => Promise<void>
   runEmbeddingCheck: () => Promise<void>
   runRagCheck: () => Promise<void>
   pingDatabase: () => Promise<void>
@@ -703,6 +809,12 @@ export const useAppStore = create<AppStore>((set, get) => {
         }
         break
       }
+      case 'assistant_motion': {
+        const result = normalizeMotionPayload(payload as Record<string, unknown>)
+        set({ lastMotionEvent: result })
+        appendLog(`assistant_motion job=${result.jobId || 'n/a'} fps=${result.fps || 0}`)
+        break
+      }
       case 'avatar_event':
         if (typeof payload.mouth_open === 'number') {
           const openness = Math.min(1, Math.max(0, payload.mouth_open))
@@ -934,6 +1046,32 @@ export const useAppStore = create<AppStore>((set, get) => {
       appendLog(`diagnostics: tts failed (${message})`)
     } finally {
       set({ ttsLoading: false })
+    }
+  }
+
+  const runMotionCheck = async () => {
+    set({ motionError: null })
+    const prompt = get().motionPrompt.trim()
+    if (!prompt) {
+      set({ motionError: 'モーション指示を入力してください' })
+      return
+    }
+    set({ motionLoading: true })
+    try {
+      const data = await requestJson<Record<string, unknown>>('/diagnostics/motion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+      const result = normalizeMotionPayload(data)
+      set({ motionResult: result })
+      appendLog(`diagnostics: motion ok (job=${result.jobId || 'n/a'})`)
+    } catch (err) {
+      const message = parseError(err)
+      set({ motionError: message })
+      appendLog(`diagnostics: motion failed (${message})`)
+    } finally {
+      set({ motionLoading: false })
     }
   }
 
@@ -1384,6 +1522,7 @@ export const useAppStore = create<AppStore>((set, get) => {
   const setLlmContext = (value: string) => set({ llmContext: value })
   const setTtsText = (value: string) => set({ ttsText: value })
   const setTtsVoice = (value: string) => set({ ttsVoice: value })
+  const setMotionPrompt = (value: string) => set({ motionPrompt: value })
   const setEmbeddingText = (value: string) => set({ embeddingText: value })
   const setRagQuery = (value: string) => set({ ragQuery: value })
   const setRagTopK = (value: string) => set({ ragTopK: value })
@@ -1459,6 +1598,11 @@ export const useAppStore = create<AppStore>((set, get) => {
     ttsAudioUrl: null,
     ttsError: null,
     ttsLoading: false,
+    motionPrompt: '3秒で手を振る',
+    motionResult: null,
+    motionError: null,
+    motionLoading: false,
+    lastMotionEvent: null,
     embeddingText: '3D アバターの対話体験を向上させるためのヒントを教えて',
     embeddingResult: null,
     embeddingError: null,
@@ -1507,6 +1651,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     setLlmContext,
     setTtsText,
     setTtsVoice,
+    setMotionPrompt,
     setEmbeddingText,
     setRagQuery,
     setRagTopK,
@@ -1526,6 +1671,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     runSttCheck,
     runLlmCheck,
     runTtsCheck,
+    runMotionCheck,
     runEmbeddingCheck,
     runRagCheck,
     pingDatabase,

@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -6,6 +7,7 @@ import httpx
 from app.core.providers import ProvidersConfig
 from app.providers.embedding import EmbeddingClient
 from app.providers.llm import LLMClient
+from app.providers.motion import MotionClient
 from app.providers.stt import STTClient
 from app.providers.tts import TTSClient
 
@@ -18,6 +20,8 @@ class ProviderRegistry:
         http_client: httpx.AsyncClient,
         providers_config: ProvidersConfig,
         llm_api_key: str | None = None,
+        data_root: Path | None = None,
+        data_mount_path: str = "/data",
     ):
         self.config = providers_config
         self.llm = LLMClient(providers_config.llm, http_client, api_key=llm_api_key)
@@ -27,6 +31,12 @@ class ProviderRegistry:
         )
         self.stt = STTClient(providers_config.stt, http_client=http_client)
         self.tts = TTSClient(providers_config.tts, http_client=http_client)
+        self.motion = MotionClient(
+            providers_config.motion,
+            http_client=http_client,
+            data_root=data_root,
+            data_mount_path=data_mount_path,
+        )
 
     def summary(self) -> dict[str, str]:
         return {
@@ -34,6 +44,7 @@ class ProviderRegistry:
             "embedding": self.config.embedding.provider,
             "stt": self.config.stt.provider,
             "tts": self.config.tts.provider,
+            "motion": self.config.motion.provider,
         }
 
     def status(self) -> dict[str, dict[str, Any]]:
@@ -57,6 +68,11 @@ class ProviderRegistry:
                 provider=self.config.tts.provider,
                 endpoint=self.config.tts.endpoint,
                 fallback_count=self.tts.fallback_count,
+            ),
+            "motion": self._provider_status(
+                provider=self.config.motion.provider,
+                endpoint=self.config.motion.endpoint,
+                fallback_count=self.motion.fallback_count,
             ),
         }
 
