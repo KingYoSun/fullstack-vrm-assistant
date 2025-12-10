@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from motion_service.config import MotionSettings
-from motion_service.generator import generate_placeholder_tracks
+from motion_service.generator import generate_placeholder_tracks, generate_prompt_motion
 from motion_service.models import MotionArtifact, MotionGenerateRequest
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,14 @@ def _build_artifact(payload: MotionGenerateRequest) -> MotionArtifact:
     job_id = uuid4().hex
     duration = payload.duration_sec or 5.0
     fps = payload.fps or 30
-    tracks, root_positions = generate_placeholder_tracks(duration_sec=duration, fps=fps, seed=payload.seed)
+    try:
+        tracks, root_positions, metadata = generate_prompt_motion(
+            prompt=payload.prompt, duration_sec=duration, fps=fps, seed=payload.seed
+        )
+    except Exception as exc:  # pragma: no cover - 安全フォールバック
+        logger.exception("prompt-based generator failed; falling back to placeholder")
+        tracks, root_positions = generate_placeholder_tracks(duration_sec=duration, fps=fps, seed=payload.seed)
+        metadata = {"generator": "placeholder", "seed": payload.seed, "error": str(exc)}
     output_path = settings.resolve_output_path(job_id, extension="json")
     url = settings.build_public_url(output_path)
     artifact = MotionArtifact(
@@ -58,7 +65,7 @@ def _build_artifact(payload: MotionGenerateRequest) -> MotionArtifact:
         fps=fps,
         tracks=tracks,
         root_position=root_positions,
-        metadata={"generator": "placeholder", "seed": payload.seed},
+        metadata=metadata,
     )
     _write_artifact(output_path, artifact)
     return artifact
@@ -74,6 +81,12 @@ async def generate_motion(body: MotionGenerateRequest) -> MotionArtifact:
     if artifact.metadata.get("generator") == "placeholder":
         logger.warning("motion_service is using placeholder generator; SnapMoGen backend not integrated")
     return artifact
+
+
+@app.post("/motion/generate", response_model=MotionArtifact)
+async def generate_motion_legacy(body: MotionGenerateRequest) -> MotionArtifact:
+    """互換用のエイリアス。"""
+    return await generate_motion(body)
 
 
 if __name__ == "__main__":

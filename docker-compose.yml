@@ -68,7 +68,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      motion:
+      motion-dev:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:${BACKEND_PORT:-8000}/ready || exit 1"]
@@ -249,6 +249,36 @@ services:
       retries: 5
     profiles:
       - prod
+
+  motion-dev:
+    image: ${MOTION_IMAGE:-local/motion-snapmogen:cuda}
+    build:
+      context: .
+      dockerfile: docker/motion-snapmogen/Dockerfile
+    container_name: vrm-motion-dev
+    working_dir: /workspace/motion_service
+    command: ["sh", "-c", "python3.12 -m motion_service.main"]
+    <<: *nvidia
+    environment:
+      - MOTION_PORT=${MOTION_PORT:-7100}
+      - DATA_ROOT=${DATA_ROOT:-/data}
+      - OUTPUT_DIR=${MOTION_OUTPUT_DIR:-/data/animations}
+      - DATA_MOUNT_PATH=${MOTION_DATA_MOUNT_PATH:-/data}
+      - CHECKPOINT_DIR=${MOTION_MODEL_DIR:-/checkpoint_dir}
+      - PYTHONPATH=/workspace
+    volumes:
+      - ./motion_service:/workspace/motion_service
+      - ${MOTION_MODEL_LOCAL_DIR:-./models/motion}:${MOTION_MODEL_DIR:-/checkpoint_dir}
+      - ${MOTION_DATA_LOCAL_DIR:-./data/motion}:${MOTION_DATA_DIR:-/data/motion}
+      - ./data:/data
+    ports:
+      - "${MOTION_PORT:-7100}:${MOTION_PORT:-7100}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${MOTION_PORT:-7100}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    profiles:
       - dev
 
   embedding:
