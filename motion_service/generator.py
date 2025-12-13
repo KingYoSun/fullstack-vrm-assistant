@@ -525,7 +525,7 @@ def _infer_style_from_keywords(prompt: str) -> str | None:
 
 
 def _match_prompt(user_prompt: str) -> tuple[str, str, float]:
-    """Find the closest prompt from the SnapMoGen prompt bank."""
+    """Find the closest prompt from the internal prompt bank."""
     best_prompt = ""
     best_score = -1.0
     for candidate in PROMPT_LIBRARY:

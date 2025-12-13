@@ -339,7 +339,7 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
       return
     }
     if (motionPlayback.metadata && motionPlayback.metadata.generator === 'placeholder') {
-      appendLog('motion: placeholder generator detected (SnapMoGen 本体が未稼働の可能性)')
+      appendLog('motion: placeholder generator detected (Motion Diffusion Model backend が未稼働の可能性)')
       // eslint-disable-next-line no-console
       console.warn('motion generator is placeholder; output may be minimal', motionPlayback)
     }

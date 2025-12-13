@@ -1,4 +1,4 @@
-# SnapMoGen motion service (stub) with CUDA 13.0 base
+# Motion Diffusion Model motion service (stub) with CUDA 13.0 base
 
 FROM nvidia/cuda:13.0.2-devel-ubuntu24.04
 

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 settings = MotionSettings()
-app = FastAPI(title="SnapMoGen Motion Service", version="0.1.0")
+app = FastAPI(title="Motion Diffusion Model Service", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -79,7 +79,7 @@ async def generate_motion(body: MotionGenerateRequest) -> MotionArtifact:
     artifact = _build_artifact(body)
     logger.info("motion generated: job_id=%s prompt=%s", artifact.job_id, prompt)
     if artifact.metadata.get("generator") == "placeholder":
-        logger.warning("motion_service is using placeholder generator; SnapMoGen backend not integrated")
+        logger.warning("motion_service is using placeholder generator; Motion Diffusion Model backend not integrated")
     return artifact
 
 

@@ -1089,7 +1089,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       })
       const generator = result.metadata && typeof result.metadata.generator === 'string' ? result.metadata.generator : undefined
       if (generator === 'placeholder') {
-        appendLog('motion: placeholder generator (SnapMoGen 未実行の可能性)')
+        appendLog('motion: placeholder generator (Motion Diffusion Model backend 未接続の可能性)')
       }
       // eslint-disable-next-line no-console
       console.info('diagnostics: motion normalized', {

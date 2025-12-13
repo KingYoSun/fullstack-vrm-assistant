@@ -234,7 +234,7 @@ export function DiagnosticsDrawer() {
                 </p>
               </div>
             ) : (
-              <p className="hint">SnapMoGen スタブの疎通確認。JSON キー列が返るかを検証。</p>
+              <p className="hint">Motion Diffusion Model スタブの疎通確認。JSON キー列が返るかを検証。</p>
             )}
             {lastMotionEvent ? (
               <div className="diag-result">

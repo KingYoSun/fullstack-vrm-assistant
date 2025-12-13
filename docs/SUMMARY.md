@@ -6,4 +6,5 @@
   - progressReports: 進捗レポート置き場
 - 02_architecture: アーキテクチャ全般
 - 03_implementation: 実装ガイド/How-to（MVP 実装計画など）
+- 04_archive: 廃止/ライセンス上の理由で退避した計画・メモ
 - その他: `docs/design_doc.md` など単体ファイル

@@ -1,4 +1,5 @@
 # SnapMoGen モーション統合計画（2025年12月09日）
+> 2025年12月13日: ライセンス上の懸念により Motion Diffusion Model へ切り替え。この文書はアーカイブ用途として保持する。
 
 ## ゴールとスコープ
 - SnapMoGen を GPU モーション生成マイクロサービスとして切り出し、FastAPI backend から HTTP 経由で呼び出し、生成物を `/data/animations` 配下に保存して frontend (three-vrm) で再生できる状態にする。

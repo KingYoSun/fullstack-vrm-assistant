@@ -223,10 +223,10 @@ services:
       - dev
 
   motion:
-    image: ${MOTION_IMAGE:-local/motion-snapmogen:cuda}
+    image: ${MOTION_IMAGE:-local/motion-mdm:cuda}
     build:
       context: .
-      dockerfile: docker/motion-snapmogen/Dockerfile
+      dockerfile: docker/motion-mdm/Dockerfile
     container_name: vrm-motion
     restart: unless-stopped
     <<: *nvidia
@@ -251,10 +251,10 @@ services:
       - prod
 
   motion-dev:
-    image: ${MOTION_IMAGE:-local/motion-snapmogen:cuda}
+    image: ${MOTION_IMAGE:-local/motion-mdm:cuda}
     build:
       context: .
-      dockerfile: docker/motion-snapmogen/Dockerfile
+      dockerfile: docker/motion-mdm/Dockerfile
     container_name: vrm-motion-dev
     working_dir: /workspace/motion_service
     command: ["sh", "-c", "python3.12 -m motion_service.main"]
