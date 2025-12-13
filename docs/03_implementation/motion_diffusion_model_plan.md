@@ -17,17 +17,20 @@
 ## モデル/データ配置計画
 - モデル配置（ローカル `./models/motion` → コンテナ `/checkpoint_dir`）:
   - `mdm/humanml_trans_dec_512_bert-50steps/model000200000.pt`（推奨本線）
-  - `mdm/humanml-encoder-512-50steps/model000200000.pt`（比較用）
+  - `mdm/humanml-encoder-512-50steps/model000750000.pt`（比較用）
   - `dip/target_10steps_context20_predict40/model000200000.pt`（超高速オプション）
-  - 各ディレクトリに `opt.txt` と `meta/{mean.npy,std.npy}` を保持。
+  - 各ディレクトリに同梱の `args.json` と `opt*.pt`（optimizer/EMA 含む）を保持。旧版で要求された `opt.txt` や `meta/{mean.npy,std.npy}` は最新配布物には含まれない。
 - データ配置（ローカル `./data/motion` → `/data/motion`）:
   - `dataset/HumanML3D/` 一式（texts/new_joint_vecs/meta/test.txt など）。最低限 test split が必要だが、prefix completion/DiP で全体を読むのでフルで置く。
   - `body_models/smpl/`（`prepare/download_smpl_files.sh` の展開先）。`SMPL_MODEL_DIR` を環境変数かパス解決で参照。
 - 取得導線:
-  - `tools/motion/download_mdm_assets.sh` を新設し、HumanML3D/SMPL/各 checkpoint をダウンロード → SHA256/サイズを出力 → `./models/motion/.gitignore` で大容量を除外。
+  - モデル/データ/メタデータは手動でダウンロードし、`./models/motion` / `./data/motion` に配置する。再ダウンロードを避けるため必ずホストにキャッシュし、コンテナはバインドマウントで参照（CI では optional）。
+  - 必須アセット例（手動取得）:
+    - Checkpoints: `mdm/humanml_trans_dec_512_bert-50steps/model000200000.pt`, `mdm/humanml-encoder-512-50steps/model000750000.pt`, `dip/target_10steps_context20_predict40/model000200000.pt`
+    - 各 checkpoint 同梱の `args.json` / `opt*.pt`（必須: `args.json`。`opt*.pt` はオプションだが保存推奨）
+    - Dataset: `data/motion/dataset/HumanML3D/`（texts/new_joint_vecs/meta/test.txt を含むフル構成）
+    - SMPL: `data/motion/body_models/smpl/`（prepare/download_smpl_files.sh の展開物）
   - `.env.default` の `MOTION_MODEL_DIR`/`MOTION_DATA_DIR` 説明に HumanML3D/SMPL 必須である旨を追記予定。
-  - 再ダウンロードを避けるため、モデル/データは必ずホストの `./models/motion` / `./data/motion` にキャッシュし、コンテナはバインドマウントで参照する（CI では optional）。
-  - 大容量のダウンロード処理は Dockerfile では行わず、`./scripts/motion/` 配下のスクリプトで実行する（Docker ビルド時間短縮）。
 
 ## 推論フロー/統合案
 - FastAPI (`motion_service.main`) からの呼び出しで `mdm_adapter` を初期化し、GPU 上にモデルを常駐させる。リクエスト → テキスト正規化 → `generate` 呼び出し → VRM JSON 化 → `OUTPUT_DIR/job_id.json` へ保存。
@@ -46,10 +49,10 @@
 - フロント/Diagnostics: 生成ファイルパス (`url`) とメタデータを返し、VRM 再生は 20fps 前提で実装。プレースホルダ利用時は既存の警告ログを流用。
 
 ## 実装タスク
-1. **motion-mdm イメージ整備**: 新規 Dockerfile で PyTorch(CUDA 対応, torch==2.9.0/cu130) + 依存をインストールし、`download_mdm_assets.sh` を実行可能にし、`MOTION_MODEL_DIR`/`MOTION_DATA_DIR` を ENV で受け取る。
+1. **motion-mdm イメージ整備**: 新規 Dockerfile で PyTorch(CUDA 対応, torch==2.9.0/cu130) + 依存をインストールし、手動配置した `MOTION_MODEL_DIR`/`MOTION_DATA_DIR` を ENV で受け取る。
 2. **mdm_adapter 実装**: `motion_service` に推論ラッパを追加し、モデルロード・推論（generate/predict 相当）・VRM JSON 化・メタデータ整備を行う。失敗時は現行プレースホルダを継続。通常版/DiP 版 API を分岐実装する。
 3. **Backend/Frontend 接続**: backend MotionClient を MDM に接続し、Diagnostics API/WS で `metadata.url` と fps を返却。frontend Diagnostics/再生で 20fps を前提に再生し、プレースホルダ時は警告表示。
-4. **モデル/データ導線ドキュメント化**: README/.env.default に HumanML3D/SMPL の配置とダウンロード手順を追記し、`models/motion`/`data/motion` の ignore 設定を整理。`./scripts/motion/` にダウンロードスクリプトを配置し、Dockerfile では大容量取得を行わない方針を明記。
+4. **モデル/データ導線ドキュメント化**: README/.env.default に HumanML3D/SMPL の配置と手動ダウンロード手順を追記し、`models/motion`/`data/motion` の ignore 設定を整理。Dockerfile では大容量取得を行わない方針を明記。
 
 ## メトリクス/検証
 - 5s テキストプロンプトでの推論時間（GPU 1 枚, 50-steps モデル vs DiP 10-steps）を実測し、Diagnostics に記録。

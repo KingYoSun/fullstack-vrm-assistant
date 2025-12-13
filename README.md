@@ -29,6 +29,17 @@ DGX Spark 1台に STT → RAG → LLM → TTS → three-vrm をまとめ、音�
    - STT: `./models/stt/ggml-base.bin` など Whisper GGUF
    - TTS: `./models/tts/` に Open Audio S1 mini、話者リファレンスは `./references/tts/`
    - Embedding: `./models/embedding/embd-model.gguf`（nomic-embed-text など）
+   - Motion (MDM/DiP): 自動ダウンロードは行わない。以下を手動で取得し、ホストにキャッシュする。
+     - Checkpoints: `./models/motion/mdm/humanml_trans_dec_512_bert-50steps/model000200000.pt`（推奨）, `./models/motion/mdm/humanml-encoder-512-50steps/model000750000.pt`, `./models/motion/dip/target_10steps_context20_predict40/model000200000.pt`
+     - 各 checkpoint 同梱の `args.json`（必須）と `opt*.pt`（任意だが保持推奨）。最新配布物には `opt.txt` や `meta/mean.npy`/`std.npy` は含まれない。
+     - Dataset: `./data/motion/dataset/HumanML3D/`（texts/new_joint_vecs/meta/test.txt を含むフル構成）
+     - SMPL: `./data/motion/body_models/smpl/`（公式 `prepare/download_smpl_files.sh` で展開したもの）
+     - 取得元の例: MDM README 記載の Google Drive / Hugging Face リンク。ダウンロード後は再利用のため同ディレクトリに保持し、Compose で `/checkpoint_dir` `/data/motion` にバインドする。
+   - Motion 環境変数（`.env`）例:
+     - `MOTION_MDM_REPO_DIR=/workspace/motion-diffusion-model`（Dockerfile で clone される公式リポのパス）
+     - `MOTION_MDM_DEFAULT_CKPT=/checkpoint_dir/mdm/humanml_trans_dec_512_bert-50steps/model000200000.pt`
+     - `MOTION_MDM_DIP_CKPT=/checkpoint_dir/dip/target_10steps_context20_predict40/model000200000.pt`
+     - `MOTION_MDM_DEFAULT_FPS=20`, `MOTION_MDM_DIP_FPS=20`, `MOTION_MDM_DEFAULT_MOTION_LENGTH=5`
 3. イメージをビルド（backend/frontend の依存も Dockerfile でまとめておく）
    ```bash
    COMPOSE_PROFILES=prod docker compose build llm backend frontend stt tts embedding

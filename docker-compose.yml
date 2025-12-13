@@ -236,6 +236,8 @@ services:
       - OUTPUT_DIR=${MOTION_OUTPUT_DIR:-/data/animations}
       - DATA_MOUNT_PATH=${MOTION_DATA_MOUNT_PATH:-/data}
       - CHECKPOINT_DIR=${MOTION_MODEL_DIR:-/checkpoint_dir}
+      - MOTION_DATA_DIR=${MOTION_DATA_DIR:-/data/motion}
+      - PYTHONPATH=/workspace
     volumes:
       - ${MOTION_MODEL_LOCAL_DIR:-./models/motion}:${MOTION_MODEL_DIR:-/checkpoint_dir}
       - ${MOTION_DATA_LOCAL_DIR:-./data/motion}:${MOTION_DATA_DIR:-/data/motion}
@@ -265,6 +267,7 @@ services:
       - OUTPUT_DIR=${MOTION_OUTPUT_DIR:-/data/animations}
       - DATA_MOUNT_PATH=${MOTION_DATA_MOUNT_PATH:-/data}
       - CHECKPOINT_DIR=${MOTION_MODEL_DIR:-/checkpoint_dir}
+      - MOTION_DATA_DIR=${MOTION_DATA_DIR:-/data/motion}
       - PYTHONPATH=/workspace
     volumes:
       - ./motion_service:/workspace/motion_service

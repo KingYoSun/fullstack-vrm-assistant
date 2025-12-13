@@ -8,6 +8,8 @@ __pycache__/
 data/faiss/*.faiss
 data/faiss/*.pkl
 data/animations/*.*
+data/mdm_outputs/
+data/motion/*
 # Frontend build artifacts
 frontend/node_modules
 frontend/dist
