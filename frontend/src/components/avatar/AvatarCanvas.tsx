@@ -18,16 +18,13 @@ import {
   AnimationMixer,
   Box3,
   LoopOnce,
+  LoopRepeat,
   PerspectiveCamera,
-  Quaternion,
-  QuaternionKeyframeTrack,
   Vector3,
-  VectorKeyframeTrack,
 } from 'three'
 import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { useAppStore } from '../../store/appStore'
-import type { MotionDiagResult } from '../../types/app'
 import { loadVrmaClip, motionJsonToClip, retargetVrmaClip } from '../../utils/vrmaLoader'
 
 type VrmModelProps = {
@@ -56,77 +53,6 @@ const focusPosition = new Vector3()
 const frontDirection = new Vector3()
 const directionBuffer = new Vector3()
 const cameraPositionBuffer = new Vector3()
-const tmpQuat = new Quaternion()
-const tmpMatQuat = new Quaternion()
-
-type BoneRest = {
-  node: THREE.Object3D
-  restLocal: Quaternion
-  restWorld: Quaternion
-  restWorldInv: Quaternion
-}
-
-const getHumanBones = (vrm: VRM) => {
-  const bones = (vrm.humanoid as unknown as { humanBones?: unknown })?.humanBones
-  if (Array.isArray(bones)) return bones
-  if (bones && typeof bones === 'object') return Object.values(bones as Record<string, unknown>)
-  return []
-}
-
-const computeRestMap = (_vrm: VRM): Map<string, BoneRest> => new Map()
-
-const buildMotionClip = (vrm: VRM, motion: MotionDiagResult, _restMap: Map<string, BoneRest>): AnimationClip | null => {
-  const humanoid = vrm.humanoid
-  if (!humanoid) return null
-
-  const tracks: (QuaternionKeyframeTrack | VectorKeyframeTrack)[] = []
-
-  const toTimes = (frames: { t: number }[]) => Float32Array.from(frames.map((f) => f.t ?? 0))
-
-  Object.entries(motion.tracks ?? {}).forEach(([bone, frames]) => {
-    if (!Array.isArray(frames) || frames.length === 0) return
-    const node = humanoid.getNormalizedBoneNode(bone as never)
-    if (!node) return
-    const targetName = bone || node.name
-    if (targetName && node.name !== targetName) {
-      node.name = targetName
-    }
-    const target = `${node.name || targetName}.quaternion`
-    const times = toTimes(frames)
-    const values = new Float32Array(frames.length * 4)
-    frames.forEach((frame, idx) => {
-      tmpQuat.set(frame.x ?? 0, frame.y ?? 0, frame.z ?? 0, frame.w ?? 1).normalize()
-      const offset = idx * 4
-      values[offset] = tmpQuat.x
-      values[offset + 1] = tmpQuat.y
-      values[offset + 2] = tmpQuat.z
-      values[offset + 3] = tmpQuat.w
-    })
-    tracks.push(new QuaternionKeyframeTrack(target, times, values))
-  })
-
-  if (motion.rootPosition?.length) {
-    const hips = humanoid.getNormalizedBoneNode('hips' as never)
-    if (hips) {
-      if (hips.name !== 'hips') {
-        hips.name = 'hips'
-      }
-      const times = toTimes(motion.rootPosition)
-      const values = new Float32Array(motion.rootPosition.length * 3)
-      motion.rootPosition.forEach((frame, idx) => {
-        const offset = idx * 3
-        values[offset] = frame.x ?? 0
-        values[offset + 1] = frame.y ?? 0
-        values[offset + 2] = frame.z ?? 0
-      })
-      const target = `${hips.name || 'hips'}.position`
-      tracks.push(new VectorKeyframeTrack(target, times, values))
-    }
-  }
-
-  if (!tracks.length) return null
-  return new AnimationClip(`motion-${motion.jobId || Date.now()}`, motion.durationSec ?? -1, tracks)
-}
 
 const adjustCameraToHeadshot = (vrm: VRM, camera: PerspectiveCamera, controls?: OrbitControlsImpl | null) => {
   vrm.scene.updateWorldMatrix(true, true)
@@ -221,6 +147,7 @@ function VrmModel({ url, mouthOpen, onLoaded, onVrmLoaded }: VrmModelProps) {
     if (!loaded) return null
     // normalized ボーンにアニメを乗せ、毎フレーム raw にコピーさせる
     if (loaded.humanoid) {
+      // eslint-disable-next-line react-hooks/immutability
       loaded.humanoid.autoUpdateHumanBones = true
     }
     VRMUtils.combineSkeletons(loaded.scene)
@@ -270,15 +197,16 @@ export function AvatarCanvas({ url, mouthOpen, onLoaded, recenterKey }: AvatarCa
   const handleVrmLoaded = useCallback((loaded: VRM) => {
     setVrm(loaded)
     if (loaded.humanoid) {
-      const raws = Object.values(loaded.humanoid.humanBones || {}).map((b) => ({
-        humanBoneName: b.humanBoneName,
-        nodeName: b.node?.name,
+      const humanBones = loaded.humanoid.humanBones as Record<string, { node: { name: string } }>
+      const raws = Object.entries(humanBones).map(([humanBoneName, bone]) => ({
+        humanBoneName,
+        nodeName: bone.node.name,
       }))
       // eslint-disable-next-line no-console
       console.info('VRM humanoid bones (raw)', raws)
-      const normalized = Object.values(loaded.humanoid.humanBones || {}).map((b) => ({
-        humanBoneName: b.humanBoneName,
-        nodeName: loaded.humanoid?.getNormalizedBoneNode(b.humanBoneName as never)?.name,
+      const normalized = Object.keys(humanBones).map((humanBoneName) => ({
+        humanBoneName,
+        nodeName: loaded.humanoid?.getNormalizedBoneNode(humanBoneName as never)?.name,
       }))
       // eslint-disable-next-line no-console
       console.info('VRM humanoid bones (normalized)', normalized)
@@ -308,9 +236,13 @@ export function AvatarCanvas({ url, mouthOpen, onLoaded, recenterKey }: AvatarCa
 
 type MotionPlayerProps = { vrm: VRM | null }
 
+const DEFAULT_IDLE_VRMA_URL = '/idle_loop.vrma'
+const MOTION_FADE_SEC = 0.2
+
 function MotionPlayer({ vrm }: MotionPlayerProps) {
   const mixerRef = useRef<AnimationMixer | null>(null)
   const lastActionRef = useRef<AnimationAction | null>(null)
+  const idleActionRef = useRef<AnimationAction | null>(null)
   const lastVrmaKeyRef = useRef<number>(0)
   const motionPlayback = useAppStore((s) => s.motionPlayback)
   const motionPlaybackKey = useAppStore((s) => s.motionPlaybackKey)
@@ -321,16 +253,96 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
   useEffect(() => {
     if (!vrm) return undefined
     mixerRef.current = new AnimationMixer(vrm.scene)
+    const mixer = mixerRef.current
+
+    const handleFinished = (event: unknown) => {
+      const finishedAction = (event as { action?: AnimationAction }).action
+      if (!finishedAction) return
+      if (finishedAction !== lastActionRef.current) return
+      lastActionRef.current = null
+
+      const idle = idleActionRef.current
+      if (idle) {
+        idle.enabled = true
+        idle.fadeIn(MOTION_FADE_SEC)
+        idle.play()
+      }
+
+      finishedAction.fadeOut(MOTION_FADE_SEC)
+      const clip = finishedAction.getClip()
+      window.setTimeout(() => {
+        finishedAction.stop()
+        mixer.uncacheAction(clip, vrm.scene)
+      }, Math.round((MOTION_FADE_SEC + 0.05) * 1000))
+    }
+
+    mixer.addEventListener('finished', handleFinished)
+
+    let aborted = false
+    loadVrmaClip(DEFAULT_IDLE_VRMA_URL)
+      .then((clip) => {
+        if (aborted) return
+        const { clip: retargeted, missing } = retargetVrmaClip(clip, vrm, { useNormalized: true })
+        if (!retargeted || retargeted.tracks.length === 0) {
+          appendLog(`idle: no applicable tracks (${DEFAULT_IDLE_VRMA_URL})`)
+          return
+        }
+        if (missing.length) {
+          // eslint-disable-next-line no-console
+          console.warn(`idle retarget: missing ${missing.length}`, { missing: missing.slice(0, 12) })
+        }
+
+        const action = mixer.clipAction(retargeted)
+        action.reset()
+        action.setLoop(LoopRepeat, Infinity)
+        action.enabled = true
+        action.play()
+        if (lastActionRef.current) {
+          action.setEffectiveWeight(0)
+        }
+        idleActionRef.current = action
+        appendLog(`idle: play ${DEFAULT_IDLE_VRMA_URL} (${retargeted.tracks.length} tracks)`)
+      })
+      .catch((err) => {
+        if (!aborted) {
+          appendLog(`idle load error: ${(err as Error).message}`)
+        }
+      })
+
     return () => {
+      aborted = true
+      mixer.removeEventListener('finished', handleFinished)
       mixerRef.current?.stopAllAction()
       mixerRef.current = null
       lastActionRef.current = null
+      idleActionRef.current = null
     }
-  }, [vrm])
+  }, [vrm, appendLog])
 
   useFrame((_, delta) => {
     mixerRef.current?.update(delta)
   }, -2)
+
+  const playRetargetedOneShot = useCallback((retargeted: AnimationClip) => {
+    if (!vrm || !mixerRef.current) return
+    const mixer = mixerRef.current
+    const nextAction = mixer.clipAction(retargeted)
+    const fromAction = lastActionRef.current ?? idleActionRef.current
+
+    nextAction.reset()
+    nextAction.setLoop(LoopOnce, 1)
+    nextAction.clampWhenFinished = true
+    nextAction.enabled = true
+    nextAction.play()
+
+    if (fromAction && fromAction !== nextAction) {
+      fromAction.crossFadeTo(nextAction, MOTION_FADE_SEC, false)
+    } else {
+      nextAction.fadeIn(MOTION_FADE_SEC)
+    }
+
+    lastActionRef.current = nextAction
+  }, [vrm])
 
   useEffect(() => {
     if (!motionPlayback) {
@@ -390,17 +402,8 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
       retargetedNames: retargeted.tracks.map((t) => t.name),
       duration: retargeted.duration,
     })
-    const mixer = mixerRef.current
-    if (lastActionRef.current) {
-      lastActionRef.current.stop()
-    }
-    const action = mixer.clipAction(retargeted)
-    action.reset()
-    action.setLoop(LoopOnce, 1)
-    action.clampWhenFinished = true
-    action.play()
-    lastActionRef.current = action
     const trackNames = retargeted.tracks.map((t) => t.name)
+    playRetargetedOneShot(retargeted)
     appendLog(
       `motion: play job=${motionPlayback.jobId || 'n/a'} (${retargeted.tracks.length} tracks) targets=${trackNames
         .slice(0, 6)
@@ -408,30 +411,26 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
     )
     // eslint-disable-next-line no-console
     console.info('motion retargeted tracks', trackNames)
-  }, [motionPlaybackKey, motionPlayback, vrm, appendLog])
+  }, [motionPlaybackKey, motionPlayback, vrm, appendLog, playRetargetedOneShot])
 
   useEffect(() => {
     let aborted = false
     if (!vrm || !vrmaUrl || !mixerRef.current) return
     if (vrmaKey === lastVrmaKeyRef.current) return
     lastVrmaKeyRef.current = vrmaKey
-    loadVrmaClip(vrmaUrl, vrm)
+    loadVrmaClip(vrmaUrl)
       .then((clip) => {
         if (aborted || !clip || !mixerRef.current) return
         const { clip: retargeted, missing } = retargetVrmaClip(clip, vrm, { useNormalized: true })
+        if (!retargeted || retargeted.tracks.length === 0) {
+          appendLog('vrma: no applicable tracks for VRM (retargeted 0)')
+          return
+        }
         if (missing.length) {
           // eslint-disable-next-line no-console
           console.warn(`vrma retarget: missing ${missing.length}`, { missing: missing.slice(0, 12) })
         }
-        if (lastActionRef.current) {
-          lastActionRef.current.stop()
-        }
-        const action = mixerRef.current.clipAction(retargeted)
-        action.reset()
-        action.setLoop(LoopOnce, 1)
-        action.clampWhenFinished = true
-        action.play()
-        lastActionRef.current = action
+        playRetargetedOneShot(retargeted)
         appendLog(`vrma: play ${vrmaUrl} (${retargeted.tracks.length} tracks)`)
         // eslint-disable-next-line no-console
         console.info('vrma retargeted tracks', retargeted.tracks.map((t) => t.name))
@@ -444,7 +443,7 @@ function MotionPlayer({ vrm }: MotionPlayerProps) {
     return () => {
       aborted = true
     }
-  }, [vrmaKey, vrmaUrl, vrm, appendLog])
+  }, [vrmaKey, vrmaUrl, vrm, appendLog, playRetargetedOneShot])
 
   return null
 }

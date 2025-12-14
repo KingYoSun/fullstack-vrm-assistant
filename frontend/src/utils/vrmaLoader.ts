@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { AnimationClip, KeyframeTrack } from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { VRM } from '@pixiv/three-vrm'
 import type { MotionKeyframe, MotionRootPosition } from '../types/app'
 
@@ -44,9 +44,9 @@ const remapTrackNames = (clip: AnimationClip) => {
   })
 }
 
-export async function loadVrmaClip(url: string, _vrm?: VRM): Promise<AnimationClip> {
+export async function loadVrmaClip(url: string): Promise<AnimationClip> {
   const loader = new GLTFLoader()
-  const gltf = await loader.loadAsync(url)
+  const gltf = (await loader.loadAsync(url)) as GLTF
   const clip = gltf.animations?.[0]
   if (!clip) {
     throw new Error('VRMA has no animations')
@@ -56,7 +56,7 @@ export async function loadVrmaClip(url: string, _vrm?: VRM): Promise<AnimationCl
   // eslint-disable-next-line no-console
   console.info('vrma loader: clip loaded', {
     url,
-    tracks: clip.tracks.map((t) => t.name),
+    tracks: clip.tracks.map((t: KeyframeTrack) => t.name),
     duration: clip.duration,
   })
   return clip
@@ -244,7 +244,7 @@ export const clipToMotionJson = (
 } => {
   const tracks: Record<string, MotionKeyframe[]> = {}
   let rootPosition: MotionRootPosition[] | undefined
-  let sampleTimes: ArrayLike<number> | null = null
+  let sampleTimes: Float32Array | null = null
 
   clip.tracks.forEach((track) => {
     const match = track.name.match(/^(.+)\.(position|quaternion)$/)
@@ -252,7 +252,7 @@ export const clipToMotionJson = (
     const base = match[1]
     const prop = match[2]
     const humanBone = resolveHumanBone(base.replace(/^normalized_/i, '')) ?? base
-    const times = track.times as ArrayLike<number>
+    const times = track.times
     if (!sampleTimes || times.length > sampleTimes.length) sampleTimes = times
 
     if (prop === 'quaternion') {
@@ -286,7 +286,12 @@ export const clipToMotionJson = (
   })
 
   const fps = sampleTimes ? estimateFps(sampleTimes) : 30
-  const durationSec = clip.duration > 0 ? clip.duration : sampleTimes ? sampleTimes[sampleTimes.length - 1] : 0
+  let lastSampleTime = 0
+  if (sampleTimes) {
+    const times = sampleTimes as Float32Array
+    lastSampleTime = times[times.length - 1] ?? 0
+  }
+  const durationSec = clip.duration > 0 ? clip.duration : lastSampleTime
   const jobId = options.jobId ?? `vrma-to-json-${Date.now()}`
   return { jobId, durationSec, fps, tracks, rootPosition, url: options.url }
 }
