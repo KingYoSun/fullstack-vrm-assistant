@@ -23,6 +23,7 @@ class MotionSettings(BaseSettings):
     mdm_default_fps: int = Field(default=20, alias="MOTION_MDM_DEFAULT_FPS")
     mdm_dip_fps: int = Field(default=20, alias="MOTION_MDM_DIP_FPS")
     mdm_default_motion_length: float = Field(default=5.0, alias="MOTION_MDM_DEFAULT_MOTION_LENGTH")
+    mdm_postprocess: str = Field(default="fast", alias="MOTION_MDM_POSTPROCESS")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

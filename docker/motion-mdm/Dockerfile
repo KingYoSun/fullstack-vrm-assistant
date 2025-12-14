@@ -31,7 +31,8 @@ RUN python3.12 -m pip install --no-cache-dir -r requirements.txt \
 # /usr/lib/python3.12/sitecustomize.py が先に読まれるため、PYTHONPATH=/workspace で上書きする。
 COPY docker/motion-mdm/sitecustomize.py /workspace/sitecustomize.py
 
-RUN git clone --depth=1 https://github.com/GuyTevet/motion-diffusion-model.git /workspace/motion-diffusion-model
+RUN git clone --depth=1 https://github.com/GuyTevet/motion-diffusion-model.git /workspace/motion-diffusion-model \
+    && sed -i 's/ax = p3.Axes3D(fig)/ax = fig.add_subplot(111, projection=\"3d\")/g' /workspace/motion-diffusion-model/data_loaders/humanml/utils/plot_script.py
 
 COPY motion_service /workspace/motion_service
 
